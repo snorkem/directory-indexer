@@ -30,90 +30,101 @@ class TreeRenderer {
     }
 
     /**
-     * Render a single tree node and its children
+     * Render a single tree node and its children (iterative to avoid stack overflow)
      * @param {Object} node - Directory node to render
      * @param {HTMLElement} parentElement - Parent DOM element
      * @param {string} path - Current path in the tree
      * @private
      */
     async _renderNode(node, parentElement, path) {
-        const hasChildren = Object.keys(node.children || {}).length > 0;
-        const isExpanded = this.state.expandedFolders.has(path);
+        // Use explicit stack to avoid call stack overflow on deeply nested structures
+        const stack = [{ node, parentElement, path }];
 
-        const treeItem = document.createElement('div');
-        treeItem.className = 'tree-item' +
-                            (isExpanded ? ' expanded' : '') +
-                            (this.state.currentPath === path ? ' selected' : '');
-        treeItem.dataset.path = path;
+        while (stack.length > 0) {
+            const { node: currentNode, parentElement: currentParent, path: currentPath } = stack.pop();
 
-        const content = document.createElement('div');
-        content.className = 'tree-item-content';
+            const hasChildren = Object.keys(currentNode.children || {}).length > 0;
+            const isExpanded = this.state.expandedFolders.has(currentPath);
 
-        // Toggle icon
-        const toggle = document.createElement('div');
-        toggle.className = 'tree-toggle' + (hasChildren ? '' : ' empty');
-        toggle.textContent = hasChildren ? (isExpanded ? '▼' : '▶') : '';
-        content.appendChild(toggle);
+            const treeItem = document.createElement('div');
+            treeItem.className = 'tree-item' +
+                                (isExpanded ? ' expanded' : '') +
+                                (this.state.currentPath === currentPath ? ' selected' : '');
+            treeItem.dataset.path = currentPath;
 
-        // Folder icon
-        const icon = document.createElement('span');
-        icon.className = 'tree-icon';
-        icon.textContent = '📁';
-        content.appendChild(icon);
+            const content = document.createElement('div');
+            content.className = 'tree-item-content';
 
-        // Label
-        const label = document.createElement('span');
-        label.className = 'tree-label';
-        label.textContent = node.name;
-        label.title = node.name;
-        content.appendChild(label);
+            // Toggle icon
+            const toggle = document.createElement('div');
+            toggle.className = 'tree-toggle' + (hasChildren ? '' : ' empty');
+            toggle.textContent = hasChildren ? (isExpanded ? '▼' : '▶') : '';
+            content.appendChild(toggle);
 
-        // File count badge
-        if (node.file_count > 0) {
-            const badge = document.createElement('span');
-            badge.className = 'tree-badge';
-            badge.textContent = node.file_count;
-            content.appendChild(badge);
-        }
+            // Folder icon
+            const icon = document.createElement('span');
+            icon.className = 'tree-icon';
+            icon.textContent = '📁';
+            content.appendChild(icon);
 
-        // Folder size
-        const size = document.createElement('span');
-        size.className = 'tree-size';
-        size.textContent = formatSize(node.total_size);
-        content.appendChild(size);
+            // Label
+            const label = document.createElement('span');
+            label.className = 'tree-label';
+            label.textContent = currentNode.name;
+            label.title = currentNode.name;
+            content.appendChild(label);
 
-        treeItem.appendChild(content);
-
-        // Click handler
-        content.addEventListener('click', async (e) => {
-            e.stopPropagation();
-
-            if (hasChildren && (e.target === toggle || e.target === icon)) {
-                // Toggle expansion
-                this.state.toggleFolder(path);
-                this.state.save();
-                await this.render();
-            } else {
-                // Navigate to folder
-                await this.onNavigate(path);
+            // File count badge
+            if (currentNode.file_count > 0) {
+                const badge = document.createElement('span');
+                badge.className = 'tree-badge';
+                badge.textContent = currentNode.file_count;
+                content.appendChild(badge);
             }
-        });
 
-        parentElement.appendChild(treeItem);
+            // Folder size
+            const size = document.createElement('span');
+            size.className = 'tree-size';
+            size.textContent = formatSize(currentNode.total_size);
+            content.appendChild(size);
 
-        // Render children if expanded
-        if (hasChildren && isExpanded) {
-            const childrenContainer = document.createElement('div');
-            childrenContainer.className = 'tree-children';
-            treeItem.appendChild(childrenContainer);
+            treeItem.appendChild(content);
 
-            const sortedChildren = Object.entries(node.children).sort((a, b) =>
-                a[1].name.localeCompare(b[1].name)
-            );
+            // Click handler - capture values in closure
+            const nodePath = currentPath;
+            const nodeHasChildren = hasChildren;
+            content.addEventListener('click', async (e) => {
+                e.stopPropagation();
 
-            for (const [childName, childNode] of sortedChildren) {
-                const childPath = path ? `${path}/${childName}` : childName;
-                await this._renderNode(childNode, childrenContainer, childPath);
+                if (nodeHasChildren && (e.target === toggle || e.target === icon)) {
+                    // Toggle expansion
+                    this.state.toggleFolder(nodePath);
+                    this.state.save();
+                    await this.render();
+                } else {
+                    // Navigate to folder
+                    await this.onNavigate(nodePath);
+                }
+            });
+
+            currentParent.appendChild(treeItem);
+
+            // Queue children for rendering if expanded (in reverse order for correct display)
+            if (hasChildren && isExpanded) {
+                const childrenContainer = document.createElement('div');
+                childrenContainer.className = 'tree-children';
+                treeItem.appendChild(childrenContainer);
+
+                const sortedChildren = Object.entries(currentNode.children).sort((a, b) =>
+                    a[1].name.localeCompare(b[1].name)
+                );
+
+                // Push in reverse order so they pop in correct order
+                for (let i = sortedChildren.length - 1; i >= 0; i--) {
+                    const [childName, childNode] = sortedChildren[i];
+                    const childPath = currentPath ? `${currentPath}/${childName}` : childName;
+                    stack.push({ node: childNode, parentElement: childrenContainer, path: childPath });
+                }
             }
         }
     }

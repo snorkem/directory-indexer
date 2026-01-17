@@ -56,7 +56,7 @@ async function initializeApp() {
         // Set global data
         tableData = fileData;
         filteredData = [...tableData];
-        maxFileSize = Math.max(...tableData.map(f => f.size_bytes || 0), 0);
+        maxFileSize = tableData.reduce((max, f) => Math.max(max, f.size_bytes || 0), 0);
 
         // Initialize components
         initializeComponents();
@@ -357,7 +357,7 @@ async function loadDataInChunks() {
 
         // Update maxFileSize incrementally
         if (chunk.length > 0) {
-            const chunkMax = Math.max(...chunk.map(f => f.size_bytes || 0));
+            const chunkMax = chunk.reduce((max, f) => Math.max(max, f.size_bytes || 0), 0);
             maxFileSize = Math.max(maxFileSize, chunkMax);
         }
 

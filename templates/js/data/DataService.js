@@ -164,7 +164,7 @@ class DataService {
     }
 
     /**
-     * Search inline tree structure recursively
+     * Search inline tree structure (iterative to avoid stack overflow)
      * @param {string} query - Search query
      * @returns {Array} Array of matching items
      * @private
@@ -173,9 +173,15 @@ class DataService {
         const results = [];
         const queryLower = query.toLowerCase();
 
-        const searchNode = (node, currentPath) => {
+        // Use explicit stack to avoid call stack overflow on deeply nested structures
+        const stack = [{ node: this.dataSource, currentPath: '' }];
+
+        while (stack.length > 0 && results.length < 1000) {
+            const { node, currentPath } = stack.pop();
+
             // Search files in current node
             (node.files || []).forEach(file => {
+                if (results.length >= 1000) return;
                 if (file.name.toLowerCase().includes(queryLower) ||
                     file.extension.toLowerCase().includes(queryLower)) {
                     results.push({
@@ -186,10 +192,10 @@ class DataService {
                 }
             });
 
-            // Search folder names and recurse
+            // Search folder names and queue children
             Object.entries(node.children || {}).forEach(([name, child]) => {
                 const childPath = currentPath ? `${currentPath}/${name}` : name;
-                if (name.toLowerCase().includes(queryLower)) {
+                if (name.toLowerCase().includes(queryLower) && results.length < 1000) {
                     results.push({
                         type: 'folder',
                         name: name,
@@ -198,23 +204,27 @@ class DataService {
                         totalSize: child.total_size
                     });
                 }
-                searchNode(child, childPath);
+                stack.push({ node: child, currentPath: childPath });
             });
-        };
+        }
 
-        searchNode(this.dataSource, '');
         return results.slice(0, 1000); // Limit to 1000 results
     }
 
     /**
-     * Get all files from inline tree structure
+     * Get all files from inline tree structure (iterative to avoid stack overflow)
      * @returns {Array} Array of all files
      * @private
      */
     _getAllFilesInline() {
         const allFiles = [];
 
-        const collectFiles = (node, currentPath) => {
+        // Use explicit stack to avoid call stack overflow on deeply nested structures
+        const stack = [{ node: this.dataSource, currentPath: '' }];
+
+        while (stack.length > 0) {
+            const { node, currentPath } = stack.pop();
+
             // Collect files from current node
             (node.files || []).forEach(file => {
                 allFiles.push({
@@ -223,14 +233,13 @@ class DataService {
                 });
             });
 
-            // Recurse into child folders
+            // Queue child folders for processing
             Object.entries(node.children || {}).forEach(([name, child]) => {
                 const childPath = currentPath ? `${currentPath}/${name}` : name;
-                collectFiles(child, childPath);
+                stack.push({ node: child, currentPath: childPath });
             });
-        };
+        }
 
-        collectFiles(this.dataSource, '');
         return allFiles;
     }
 
