@@ -53,18 +53,16 @@ class DirectoryTreeBuilder:
             # Split the relative path into parts
             rel_path = file_info['relative_path']
             parts = Path(rel_path).parts
+            size = file_info['size_bytes']
 
-            # Check if file is in root directory (single path component)
-            if len(parts) == 1:
-                # File is in root directory
-                tree['files'].append(file_info)
-                tree['file_count'] += 1
-                tree['total_size'] += file_info['size_bytes']
-                continue
+            # Root totals include every file
+            tree['file_count'] += 1
+            tree['total_size'] += size
 
             current = tree
 
-            # Navigate/create folder structure
+            # Navigate/create folder structure, adding this file to every
+            # ancestor folder's totals so folder sizes include subfolders
             for i, part in enumerate(parts[:-1]):  # Exclude filename
                 if part not in current['children']:
                     current['children'][part] = {
@@ -77,14 +75,10 @@ class DirectoryTreeBuilder:
                         'files': []
                     }
                 current = current['children'][part]
+                current['file_count'] += 1
+                current['total_size'] += size
 
-            # Add file to its parent folder
+            # File entry belongs only to its direct parent folder
             current['files'].append(file_info)
-            current['file_count'] += 1
-            current['total_size'] += file_info['size_bytes']
-
-            # Update root tree counts (for files in subdirectories only)
-            tree['file_count'] += 1
-            tree['total_size'] += file_info['size_bytes']
 
         return tree
