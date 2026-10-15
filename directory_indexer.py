@@ -117,7 +117,11 @@ def run_database_mode(scan_result, root_path: str, output_file: str, forced: boo
 
     # Create folder structure
     output_path_obj = Path(output_file)
-    base_output_dir = output_path_obj.parent / output_path_obj.stem
+    if output_path_obj.parent.name == output_path_obj.stem:
+        # The path resolver already created a folder for this archive
+        base_output_dir = output_path_obj.parent
+    else:
+        base_output_dir = output_path_obj.parent / output_path_obj.stem
 
     # Create subdirectories
     data_dir = base_output_dir / 'data'
