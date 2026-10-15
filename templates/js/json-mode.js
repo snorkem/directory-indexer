@@ -55,11 +55,14 @@ async function initializeApp() {
 
         // Set global data
         tableData = fileData;
+        // Start sorted to match currentSort, so the first header click toggles as expected
         filteredData = [...tableData];
+        sortData(filteredData);
         maxFileSize = tableData.reduce((max, f) => Math.max(max, f.size_bytes || 0), 0);
 
         // Initialize components
         initializeComponents();
+        updateSortHeaders();
 
         // Setup event listeners
         setupEventListeners();

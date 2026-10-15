@@ -248,6 +248,15 @@ function updateSortHeaders() {
 }
 
 /**
+ * Build a LIKE pattern that matches text anywhere, treating % and _ literally
+ * @param {string} text - Search text
+ * @returns {string} Pattern for a LIKE clause that uses backslash as its ESCAPE character
+ */
+function likeContainsPattern(text) {
+    return '%' + text.replace(/[\\%_]/g, '\\$&') + '%';
+}
+
+/**
  * Update filtered file count from database
  */
 function updateFilteredCount() {
@@ -255,8 +264,9 @@ function updateFilteredCount() {
     const params = [];
 
     if (currentFilter.search) {
-        query += ' AND (LOWER(name) LIKE ? OR LOWER(directory) LIKE ?)';
-        params.push('%' + currentFilter.search + '%', '%' + currentFilter.search + '%');
+        query += " AND (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(directory) LIKE ? ESCAPE '\\')";
+        const pattern = likeContainsPattern(currentFilter.search);
+        params.push(pattern, pattern);
     }
 
     if (currentFilter.extension && currentFilter.extension !== 'all') {
@@ -334,8 +344,9 @@ function renderTableRows(tbody, container) {
     const params = [];
 
     if (currentFilter.search) {
-        query += ' AND (LOWER(name) LIKE ? OR LOWER(directory) LIKE ?)';
-        params.push('%' + currentFilter.search + '%', '%' + currentFilter.search + '%');
+        query += " AND (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(directory) LIKE ? ESCAPE '\\')";
+        const pattern = likeContainsPattern(currentFilter.search);
+        params.push(pattern, pattern);
     }
 
     if (currentFilter.extension && currentFilter.extension !== 'all') {
@@ -566,13 +577,6 @@ async function buildTreeFromDatabase() {
                     node.files = currentFiles;
                 }
 
-                // Yield to UI periodically (every 1000 files)
-                processedCount += currentFiles.length;
-                if (processedCount > 0 && processedCount % 1000 === 0) {
-                    await new Promise(resolve => setTimeout(resolve, 0));
-                    updateLoadingProgress(95, `Processing files... ${processedCount}/${totalFiles}`);
-                }
-
                 currentFiles = [];
             }
 
@@ -586,6 +590,13 @@ async function buildTreeFromDatabase() {
                 created: row[5],
                 icon: row[6]
             });
+
+            // Yield to the UI every 5000 files so large databases don't freeze the page
+            processedCount++;
+            if (processedCount % 5000 === 0) {
+                updateLoadingProgress(95, `Processing files... ${processedCount.toLocaleString()}/${totalFiles.toLocaleString()}`);
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
         }
 
         // Don't forget the last directory's files
@@ -612,10 +623,27 @@ async function buildTreeFromDatabase() {
     }
 }
 
+// In-flight Browse initialization, shared so repeated tab clicks don't build the tree twice
+let browseInitPromise = null;
+
 /**
- * Initialize browse mode
+ * Initialize browse mode (once; concurrent calls share the same initialization)
+ * @returns {Promise<void>}
  */
-async function initBrowseMode() {
+function initBrowseMode() {
+    if (!browseInitPromise) {
+        browseInitPromise = buildBrowseMode().finally(() => {
+            // Allow a retry if initialization failed
+            if (!window.browseController) browseInitPromise = null;
+        });
+    }
+    return browseInitPromise;
+}
+
+/**
+ * Build the directory tree and browse controller
+ */
+async function buildBrowseMode() {
     if (window.browseController) return; // Already initialized
 
     try {

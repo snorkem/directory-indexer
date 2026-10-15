@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from ..models import FileInfo, ScanResult
 from ..config.settings import ProgressConfig
@@ -134,9 +134,20 @@ class DirectoryScanner:
                 full_path=filepath.relative_to(self.root_path).as_posix(),
                 size=size_bytes,
                 extension=extension,
-                modified=stat_info.st_mtime
+                modified=stat_info.st_mtime,
+                created=self._creation_time(stat_info)
             )
 
         except (PermissionError, OSError):
             self.error_count += 1
             return None
+
+    @staticmethod
+    def _creation_time(stat_info: os.stat_result) -> Optional[float]:
+        """Get a file's creation time, or None if the platform doesn't record it."""
+        birthtime = getattr(stat_info, 'st_birthtime', None)  # macOS/BSD, Windows on Python 3.12+
+        if birthtime is not None:
+            return birthtime
+        if os.name == 'nt':
+            return stat_info.st_ctime  # creation time on Windows before Python 3.12
+        return None

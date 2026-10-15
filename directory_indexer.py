@@ -244,24 +244,26 @@ Modes:
 
     parser.add_argument('directory', help='Directory path to archive')
     parser.add_argument('output', nargs='?', help='Output HTML file path (optional)')
-    parser.add_argument('--extdb', action='store_true',
-                       help='Force external database mode (creates .db + .html files)')
-    parser.add_argument('--json', action='store_true',
-                       help='Force JSON mode (embed data in HTML file)')
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument('--extdb', action='store_true',
+                            help='Force external database mode (creates .db + .html files)')
+    mode_group.add_argument('--json', action='store_true',
+                            help='Force JSON mode (embed data in HTML file)')
 
     # Parse arguments
     args = parser.parse_args()
 
-    root_path = args.directory
-
     # Validate directory
-    if not Path(root_path).exists():
-        print(f"Error: Directory '{root_path}' does not exist.")
+    if not Path(args.directory).exists():
+        print(f"Error: Directory '{args.directory}' does not exist.")
         sys.exit(1)
 
-    if not Path(root_path).is_dir():
-        print(f"Error: '{root_path}' is not a directory.")
+    if not Path(args.directory).is_dir():
+        print(f"Error: '{args.directory}' is not a directory.")
         sys.exit(1)
+
+    # Absolute path, so "." or "../x" still give the archive its real folder name
+    root_path = str(Path(args.directory).resolve())
 
     # Determine output file
     resolver = OutputPathResolver(root_path, args.output)
@@ -292,9 +294,6 @@ Modes:
 
     if use_database:
         # Database mode
-        if args.json:
-            print("\nWarning: --json flag ignored due to large dataset size")
-
         run_database_mode(scan_result, root_path, output_file, forced=args.extdb)
     else:
         # JSON mode

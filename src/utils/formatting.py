@@ -4,6 +4,26 @@ Formatting utilities for Directory Indexer.
 This module provides utilities for formatting file sizes and mapping file extensions to icons.
 """
 
+from datetime import datetime, timedelta
+
+_EPOCH = datetime(1970, 1, 1)
+
+
+def format_timestamp(timestamp: float) -> str:
+    """Format a Unix timestamp as local time ("YYYY-MM-DD HH:MM:SS").
+
+    Windows can't convert times before 1970 to local time, so those (and any
+    other time the platform rejects) are shown in UTC instead of aborting.
+    """
+    try:
+        moment = datetime.fromtimestamp(timestamp)
+    except (OSError, OverflowError, ValueError):
+        try:
+            moment = _EPOCH + timedelta(seconds=timestamp)
+        except OverflowError:
+            return 'Unknown'
+    return moment.strftime('%Y-%m-%d %H:%M:%S')
+
 
 class SizeFormatter:
     """Handles file size formatting."""

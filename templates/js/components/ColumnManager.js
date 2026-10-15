@@ -172,6 +172,15 @@ class ColumnManager {
         const headers = table.querySelectorAll('th');
         const columnKeys = ['name', 'type', 'path', 'size', 'modified'];
 
+        // A drag that ends over a header also fires a click on it; swallow that
+        // click (capture phase, before the header's sort handler) so resizing doesn't sort
+        let resizeEndedAt = 0;
+        table.addEventListener('click', (e) => {
+            if (Date.now() - resizeEndedAt < 100) {
+                e.stopPropagation();
+            }
+        }, true);
+
         headers.forEach((header, index) => {
             // Skip the last header (no resize needed)
             if (index === headers.length - 1) return;
@@ -209,6 +218,7 @@ class ColumnManager {
             };
 
             const handleMouseUp = () => {
+                resizeEndedAt = Date.now();
                 resizeHandle.classList.remove('resizing');
                 document.body.style.cursor = '';
                 document.body.style.userSelect = '';

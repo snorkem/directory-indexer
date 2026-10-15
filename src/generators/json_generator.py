@@ -105,7 +105,8 @@ window.directoryTree = {context['directory_tree_json']};
             context
         )
 
-        # Write to file
+        # Write to file (creating its folder if needed, as database mode does)
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(final_html)
 

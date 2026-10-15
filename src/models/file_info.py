@@ -5,8 +5,7 @@ This module defines the FileInfo class for representing file metadata.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 
 @dataclass
@@ -19,12 +18,15 @@ class FileInfo:
         size: File size in bytes
         extension: File extension (including dot, e.g., '.txt')
         modified: Last modified timestamp (Unix epoch)
+        created: Creation timestamp (Unix epoch), or None where the
+                 filesystem doesn't record one (e.g. most Linux setups)
     """
     name: str
     full_path: str
     size: int
     extension: str
     modified: float
+    created: Optional[float] = None
 
     @property
     def path_without_name(self) -> str:
@@ -42,10 +44,11 @@ class FileInfo:
         Returns:
             Dictionary with all required fields for HTML generation
         """
-        from ..utils.formatting import SizeFormatter, IconMapper
+        from ..utils.formatting import SizeFormatter, IconMapper, format_timestamp
 
-        # Format the modified timestamp
-        modified_str = datetime.fromtimestamp(self.modified).strftime('%Y-%m-%d %H:%M:%S')
+        modified_str = format_timestamp(self.modified)
+        # Without a recorded creation time, fall back to the modification time
+        created_str = format_timestamp(self.created) if self.created is not None else modified_str
 
         return {
             'name': self.name,
@@ -57,5 +60,5 @@ class FileInfo:
             'extension': self.extension,
             'icon': IconMapper.get_icon(self.extension),
             'modified': modified_str,
-            'created': modified_str,  # FileInfo doesn't track creation time separately
+            'created': created_str,
         }
