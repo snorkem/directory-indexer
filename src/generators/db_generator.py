@@ -6,10 +6,11 @@ Generates HTML viewer with external SQLite database for directory indexer
 import sys
 import shutil
 from datetime import datetime
+from html import escape as html_escape
 from pathlib import Path
 from typing import Dict, List, Any
 
-from .html_builder import HtmlBuilder
+from .html_builder import HtmlBuilder, script_safe_json
 from .component_builder import ComponentBuilder
 from .js_bundler import JavaScriptBundler
 from .statistics_builder import StatisticsBuilder
@@ -184,8 +185,8 @@ class DbGenerator:
         db_size_human = SizeFormatter.format_size(db_size) if db_size > 0 else "Unknown"
 
         return {
-            'root_path': root_path,
-            'root_name': root_name,
+            'root_path': html_escape(root_path),
+            'root_name': html_escape(root_name),
             'total_files': f"{len(files_data):,}",
             'total_size_human': SizeFormatter.format_size(total_size),
             'total_extensions': str(len(extension_stats)),
@@ -225,5 +226,5 @@ class DbGenerator:
             JavaScript code that sets the database filename
         """
         return f"""<script type="text/javascript">
-window.dbFilename = '{db_filename}';
+window.dbFilename = {script_safe_json(db_filename)};
 </script>"""

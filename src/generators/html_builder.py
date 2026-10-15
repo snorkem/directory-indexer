@@ -5,8 +5,22 @@ This module provides functionality for loading and assembling HTML templates
 from separate component files.
 """
 
+import json
+import re
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
+
+_PLACEHOLDER_PATTERN = re.compile(r'\{(\w+)\}')
+
+
+def script_safe_json(value: Any) -> str:
+    """
+    Serialize a value as JSON that is safe to embed inside a <script> element.
+
+    Escaping '<' prevents names containing "</script" or "<!--" from ending or
+    corrupting the script element; JSON parsers decode \\u003c back to '<'.
+    """
+    return json.dumps(value, separators=(',', ':')).replace('<', '\\u003c')
 
 
 class HtmlBuilder:
@@ -96,13 +110,13 @@ class HtmlBuilder:
         Returns:
             Rendered template string with placeholders replaced
         """
-        result = template
+        # Single pass: inserted values (which may contain file names) are never
+        # rescanned, so a file named "{modals}" can't pull in template content
+        def substitute(match: re.Match) -> str:
+            key = match.group(1)
+            return str(context[key]) if key in context else match.group(0)
 
-        for key, value in context.items():
-            placeholder = f"{{{key}}}"
-            result = result.replace(placeholder, str(value))
-
-        return result
+        return _PLACEHOLDER_PATTERN.sub(substitute, template)
 
     def assemble_page(
         self,

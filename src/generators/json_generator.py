@@ -3,13 +3,13 @@ JSON Mode Generator
 Generates HTML with embedded JSON data for directory indexer
 """
 
-import json
 import sys
 from datetime import datetime
+from html import escape as html_escape
 from pathlib import Path
 from typing import Dict, List, Any
 
-from .html_builder import HtmlBuilder
+from .html_builder import HtmlBuilder, script_safe_json
 from .component_builder import ComponentBuilder
 from .js_bundler import JavaScriptBundler
 from .statistics_builder import StatisticsBuilder
@@ -149,16 +149,16 @@ window.directoryTree = {context['directory_tree_json']};
 
         # Embed directory tree (if provided)
         if directory_tree:
-            directory_tree_json = json.dumps(directory_tree, separators=(',', ':'))
+            directory_tree_json = script_safe_json(directory_tree)
         else:
             # Create minimal tree structure
-            directory_tree_json = json.dumps({
+            directory_tree_json = script_safe_json({
                 'name': root_name,
                 'file_count': len(files_data),
                 'total_size': total_size,
                 'children': {},
                 'files': []
-            }, separators=(',', ':'))
+            })
 
         # Build column settings panel HTML
         column_settings_panel = '''<div class="settings-panel" id="settingsPanel">
@@ -209,8 +209,8 @@ window.directoryTree = {context['directory_tree_json']};
 </div>'''
 
         return {
-            'root_path': root_path,
-            'root_name': root_name,
+            'root_path': html_escape(root_path),
+            'root_name': html_escape(root_name),
             'total_files': f"{len(files_data):,}",
             'total_size_human': SizeFormatter.format_size(total_size),
             'total_extensions': str(len(extension_stats)),
@@ -269,5 +269,5 @@ window.directoryTree = {context['directory_tree_json']};
             JSON string of file data
         """
         # Convert to JSON with minimal formatting for size
-        return json.dumps(files_data, separators=(',', ':'))
+        return script_safe_json(files_data)
 

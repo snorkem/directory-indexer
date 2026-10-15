@@ -26,6 +26,9 @@ let currentFilter = { search: '', extension: null };
 const ROW_HEIGHT = 32;
 const BUFFER_SIZE = 10;
 
+// Columns the All Files table may sort by (interpolated into ORDER BY)
+const SORTABLE_COLUMNS = new Set(['name', 'extension', 'directory', 'size_bytes', 'modified', 'created']);
+
 let virtualScroll = {
     startIndex: 0,
     endIndex: 0,
@@ -58,7 +61,8 @@ async function initDatabase() {
 
         // Fetch the database file
         const dbFilename = window.dbFilename || 'directory_index.db';
-        const response = await fetch(dbFilename);
+        // Encode so names with spaces, '#' or '?' resolve to the right file
+        const response = await fetch(encodeURIComponent(dbFilename));
         if (!response.ok) {
             throw new Error('Failed to load database. Make sure to run this via HTTP server (python serve.py)');
         }
@@ -165,8 +169,8 @@ function setupEventListeners() {
         extensionFilter.addEventListener('change', handleFilterChange);
     }
 
-    // Sort headers
-    document.querySelectorAll('th[data-column]').forEach(header => {
+    // Sort headers (All Files table only; the Browse table has its own handlers)
+    document.querySelectorAll('#fileTable th[data-column]').forEach(header => {
         header.addEventListener('click', () => {
             const column = header.dataset.column;
             handleSort(column);
@@ -216,6 +220,8 @@ function handleFilterChange() {
  * @param {string} column - Column name to sort by
  */
 function handleSort(column) {
+    if (!SORTABLE_COLUMNS.has(column)) return;
+
     if (currentSort.column === column) {
         currentSort.ascending = !currentSort.ascending;
     } else {
@@ -231,7 +237,7 @@ function handleSort(column) {
  * Update sort indicator arrows in table headers
  */
 function updateSortHeaders() {
-    document.querySelectorAll('th[data-column]').forEach(header => {
+    document.querySelectorAll('#fileTable th[data-column]').forEach(header => {
         header.classList.remove('sort-asc', 'sort-desc');
         if (header.dataset.column === currentSort.column) {
             header.classList.add(currentSort.ascending ? 'sort-asc' : 'sort-desc');
@@ -371,13 +377,14 @@ function renderTable() {
                     </div>
                 </td>
                 <td class="modified">${escapeHtml(modified)}</td>
+                <td class="modified">${escapeHtml(created)}</td>
             </tr>
             `;
         }).join('');
 
     } catch (error) {
         console.error('Error rendering table:', error);
-        tbody.innerHTML = '<tr><td colspan="5">Error loading data</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6">Error loading data</td></tr>';
     }
 }
 
@@ -530,7 +537,7 @@ async function buildTreeFromDatabase() {
 
         // OPTIMIZATION: Fetch all files in single query and group by directory
         console.log('Loading files...');
-        const allFilesQuery = 'SELECT directory, name, extension, size_bytes, modified, created, icon FROM files ORDER BY directory, name';
+        const allFilesQuery = 'SELECT directory, name, extension, size_bytes, modified, created, icon, size_human FROM files ORDER BY directory, name';
         const allFilesStmt = db.prepare(allFilesQuery);
 
         let currentDir = null;
@@ -563,7 +570,8 @@ async function buildTreeFromDatabase() {
             currentFiles.push({
                 name: row[1],
                 extension: row[2],
-                size: row[3],
+                size_bytes: row[3],
+                size_human: row[7],
                 modified: row[4],
                 created: row[5],
                 icon: row[6]

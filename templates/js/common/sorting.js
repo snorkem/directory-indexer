@@ -48,7 +48,7 @@ function compareWithFoldersFirst(a, b, column, ascending, foldersFirst = true) {
  * and in which direction.
  */
 function updateSortHeaders() {
-    document.querySelectorAll('th[data-column]').forEach(header => {
+    document.querySelectorAll('#fileTable th[data-column]').forEach(header => {
         header.classList.remove('sort-asc', 'sort-desc');
         if (header.dataset.column === currentSort.column) {
             header.classList.add(currentSort.ascending ? 'sort-asc' : 'sort-desc');

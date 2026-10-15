@@ -130,7 +130,8 @@ class DirectoryScanner:
             # Create and return FileInfo object
             return FileInfo(
                 name=entry.name,
-                full_path=str(filepath.relative_to(self.root_path)),
+                # POSIX separators on every OS: directory/tree code splits on '/'
+                full_path=filepath.relative_to(self.root_path).as_posix(),
                 size=size_bytes,
                 extension=extension,
                 modified=stat_info.st_mtime

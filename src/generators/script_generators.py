@@ -4,6 +4,8 @@ Generates helper scripts for running the directory indexer viewer
 """
 
 import os
+from urllib.parse import quote
+
 from ..config.settings import ServerConfig
 
 
@@ -19,10 +21,13 @@ def generate_server_script(output_dir: str, html_filename: str, port: int = Serv
     Returns:
         Path to the generated server script
     """
+    # URL-encoded so names with spaces, quotes, braces or "#" are safe in code and URLs
+    html_url_path = quote(html_filename)
+
     server_script = f'''#!/usr/bin/env python3
 """
 Simple HTTP Server for Directory Index Viewer
-Serves the HTML file and database with proper CORS headers
+Serves the HTML file and database to this computer only (localhost)
 
 Usage:
     python serve.py [port]
@@ -44,7 +49,7 @@ if len(sys.argv) <= 1:
         """Check if a port is available for binding."""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(('', port))
+                s.bind(('127.0.0.1', port))
                 return True
         except OSError:
             return False
@@ -59,14 +64,10 @@ if len(sys.argv) <= 1:
     if PORT != original_port:
         print(f"Note: Default port {{original_port}} was in use, using port {{PORT}} instead")
 
-class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
-    """HTTP request handler with CORS headers for local file access"""
+class ViewerRequestHandler(http.server.SimpleHTTPRequestHandler):
+    """HTTP request handler for the viewer (same-origin, so no CORS headers)"""
 
     def end_headers(self):
-        # Allow cross-origin requests
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', '*')
         # Prevent caching for development
         self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
         super().end_headers()
@@ -79,10 +80,10 @@ if __name__ == "__main__":
     # Change to script directory
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-    Handler = CORSRequestHandler
+    Handler = ViewerRequestHandler
 
     try:
-        with socketserver.TCPServer(("", PORT), Handler) as httpd:
+        with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
             # Output port for launcher scripts to parse (flush immediately)
             print(f"ACTUAL_PORT={{PORT}}", flush=True)
             sys.stdout.flush()
@@ -90,7 +91,7 @@ if __name__ == "__main__":
             print("Directory Index Viewer Server")
             print("=" * 60)
             print(f"Serving at http://localhost:{{PORT}}")
-            print(f"\\nOpen in browser: http://localhost:{{PORT}}/{html_filename}")
+            print(f"\\nOpen in browser: http://localhost:{{PORT}}/{html_url_path}")
             print("\\nPress Ctrl+C to stop the server")
             print("=" * 60)
             sys.stdout.flush()
@@ -139,6 +140,11 @@ def generate_launcher_scripts(
     Returns:
         Tuple of (macos_script_path, windows_script_path, linux_script_path)
     """
+    # URL-encoded so names with spaces, quotes, "&" or "#" open the right page;
+    # batch files also need "%" doubled so %20 isn't read as an argument
+    html_url_path = quote(html_filename)
+    bat_url_path = html_url_path.replace('%', '%%')
+
     # macOS .command script (zsh) - navigates to ../data/
     macos_script = f'''#!/bin/zsh
 # Directory Index Viewer Launcher (macOS)
@@ -188,7 +194,7 @@ echo ""
 
 # Open in default browser
 echo "Opening browser..."
-open "http://localhost:$ACTUAL_PORT/{html_filename}"
+open "http://localhost:$ACTUAL_PORT/{html_url_path}"
 echo ""
 echo "Server is running. Close this window to stop the server."
 echo "============================================================"
@@ -215,6 +221,7 @@ wait $SERVER_PID
 
     # Windows .bat script - navigates to ..\data\
     windows_script = f'''@echo off
+setlocal EnableDelayedExpansion
 REM Directory Index Viewer Launcher (Windows)
 REM Double-click this file to start the server and open the viewer
 
@@ -229,17 +236,17 @@ echo Working directory: %CD%
 echo.
 
 REM Set temporary files
-set LOG_FILE=%TEMP%\\serve_output_%RANDOM%.log
-set PID_FILE=%TEMP%\\serve_pid_%RANDOM%.txt
+set "LOG_FILE=%TEMP%\\serve_output_%RANDOM%.log"
+set "PID_FILE=%TEMP%\\serve_pid_%RANDOM%.txt"
 
 REM Start the Python server in background and capture output
 REM Note: Not passing port argument to allow auto-port detection
-start /b cmd /c "python serve.py > %LOG_FILE% 2>&1"
+start /b cmd /c "python serve.py > "%LOG_FILE%" 2>&1"
 
 REM Capture the PID using WMIC (wait a moment for process to start)
 timeout /t 1 /nobreak >nul
 for /f "tokens=2 delims=," %%i in ('wmic process where "commandline like '%%python%%serve.py%%'" get processid /format:csv 2^>nul ^| findstr /r "[0-9]"') do (
-    echo %%i > %PID_FILE%
+    echo %%i> "%PID_FILE%"
 )
 
 echo Server starting...
@@ -250,7 +257,7 @@ timeout /t 2 /nobreak >nul
 
 REM Extract the actual port from server output
 set ACTUAL_PORT=
-for /f "tokens=2 delims==" %%i in ('findstr /b "ACTUAL_PORT=" %LOG_FILE% 2^>nul') do set ACTUAL_PORT=%%i
+for /f "tokens=2 delims==" %%i in ('findstr /b "ACTUAL_PORT=" "%LOG_FILE%" 2^>nul') do set ACTUAL_PORT=%%i
 
 REM If port not found, use default
 if "%ACTUAL_PORT%"=="" (
@@ -263,7 +270,7 @@ echo.
 
 REM Open in default browser
 echo Opening browser...
-start http://localhost:%ACTUAL_PORT%/{html_filename}
+start "" "http://localhost:%ACTUAL_PORT%/{bat_url_path}"
 
 echo.
 echo Server is running. Press any key to stop the server.
@@ -278,10 +285,11 @@ echo.
 echo Stopping server...
 
 REM Use stored PID if available, otherwise fall back to command line matching
-if exist %PID_FILE% (
-    set /p SERVER_PID=<%PID_FILE%
-    taskkill /f /pid %SERVER_PID% >nul 2>&1
-    del /f /q %PID_FILE% >nul 2>&1
+REM SERVER_PID is read with !...! because %...% is expanded before set /p runs
+if exist "%PID_FILE%" (
+    set /p SERVER_PID=<"%PID_FILE%"
+    taskkill /f /pid !SERVER_PID! >nul 2>&1
+    del /f /q "%PID_FILE%" >nul 2>&1
 ) else (
     REM Fallback: find and kill by command line
     for /f "tokens=2 delims=," %%i in ('wmic process where "commandline like '%%python%%serve.py%%'" get processid /format:csv 2^>nul ^| findstr /r "[0-9]"') do (
@@ -289,7 +297,7 @@ if exist %PID_FILE% (
     )
 )
 
-del /f /q %LOG_FILE% >nul 2>&1
+del /f /q "%LOG_FILE%" >nul 2>&1
 '''
 
     # Linux .sh script (bash) - navigates to ../data/
@@ -345,11 +353,11 @@ echo "Opening browser..."
 echo ""
 
 # Open browser (xdg-open is standard on Linux)
-xdg-open "http://localhost:$ACTUAL_PORT/{html_filename}" 2>/dev/null
+xdg-open "http://localhost:$ACTUAL_PORT/{html_url_path}" 2>/dev/null
 
 echo ""
 echo "Server is running at http://localhost:$ACTUAL_PORT"
-echo "Browser opened to: http://localhost:$ACTUAL_PORT/{html_filename}"
+echo "Browser opened to: http://localhost:$ACTUAL_PORT/{html_url_path}"
 echo ""
 echo "Press Ctrl+C to stop the server"
 echo "============================================================"
@@ -364,8 +372,6 @@ cleanup() {{
         kill $SERVER_PID 2>/dev/null
     fi
 
-    # Also kill any lingering python serve.py processes
-    pkill -f "python.*serve.py" 2>/dev/null
 
     # Clean up log file
     rm -f "$LOG_FILE"

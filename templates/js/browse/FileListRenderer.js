@@ -77,7 +77,9 @@ class FileListRenderer {
             const header = document.createElement('tr');
             header.className = 'search-folder-header';
             const displayName = folderPath || (this.rootNode ? this.rootNode.name : 'Root');
-            header.innerHTML = `<td colspan="5" style="background: #f0f0f0; font-weight: 600; padding: 10px;">📁 ${displayName}</td>`;
+            header.innerHTML = '<td colspan="5" style="background: #f0f0f0; font-weight: 600; padding: 10px;"></td>';
+            // textContent: folder names are data, never markup
+            header.firstChild.textContent = `📁 ${displayName}`;
             this.tbody.appendChild(header);
 
             // Add files

@@ -101,7 +101,7 @@ function initializeComponents() {
         rowHeight: 45,
         bufferSize: 10
     });
-    virtualTableRenderer.setData(filteredData);
+    virtualTableRenderer.setData(filteredData, maxFileSize);
 
     // Column manager
     columnManager = new ColumnManager({
@@ -135,8 +135,8 @@ function setupEventListeners() {
         extensionFilter.addEventListener('change', handleFilterChange);
     }
 
-    // Sort headers
-    document.querySelectorAll('th[data-column]').forEach(header => {
+    // Sort headers (All Files table only; the Browse table has its own handlers)
+    document.querySelectorAll('#fileTable th[data-column]').forEach(header => {
         header.addEventListener('click', () => {
             const column = header.dataset.column;
             handleSort(column);
@@ -205,7 +205,7 @@ function handleFilterChange() {
     sortData(filteredData);
 
     // Update renderer and render
-    virtualTableRenderer.setData(filteredData);
+    virtualTableRenderer.setData(filteredData, maxFileSize);
     virtualTableRenderer.scrollToTop();
     renderTable();
 }
@@ -229,7 +229,7 @@ function handleSort(column) {
     updateSortHeaders();
 
     // Update UI
-    virtualTableRenderer.setData(filteredData);
+    virtualTableRenderer.setData(filteredData, maxFileSize);
     renderTable();
 }
 
@@ -267,7 +267,7 @@ function sortData(data) {
  * Update sort indicator arrows in table headers
  */
 function updateSortHeaders() {
-    document.querySelectorAll('th[data-column]').forEach(header => {
+    document.querySelectorAll('#fileTable th[data-column]').forEach(header => {
         header.classList.remove('sort-asc', 'sort-desc');
         if (header.dataset.column === currentSort.column) {
             header.classList.add(currentSort.ascending ? 'sort-asc' : 'sort-desc');
