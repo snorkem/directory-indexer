@@ -11,32 +11,28 @@ class VirtualTableRenderer {
      * Create a virtual table renderer
      * @param {Object} config - Configuration object
      * @param {string} config.containerId - ID of scroll container element
-     * @param {string} config.spacerId - ID of spacer element
-     * @param {string} config.viewportId - ID of viewport element
      * @param {string} config.tbodyId - ID of table body element
      * @param {string} config.noResultsId - ID of no results message element
      * @param {string} config.resultNumberId - ID of result count element
-     * @param {number} config.rowHeight - Height of each row in pixels
+     * @param {number} config.rowHeight - Initial row height estimate in pixels (measured after first render)
      * @param {number} config.bufferSize - Number of extra rows to render above/below viewport
      */
     constructor(config) {
         this.container = document.getElementById(config.containerId);
-        this.spacer = document.getElementById(config.spacerId);
-        this.viewport = document.getElementById(config.viewportId);
         this.tbody = document.getElementById(config.tbodyId);
         this.noResults = document.getElementById(config.noResultsId);
         this.resultNumber = document.getElementById(config.resultNumberId);
 
         this.rowHeight = config.rowHeight || 45;
         this.bufferSize = config.bufferSize || 10;
+        this.columnCount = 6;
 
         this.data = [];
         this.maxFileSize = 0;
 
         this.virtualScroll = {
             startIndex: 0,
-            endIndex: 0,
-            visibleRows: 0
+            endIndex: 0
         };
 
         // Bind scroll handler
@@ -64,8 +60,14 @@ class VirtualTableRenderer {
             return;
         }
 
+        // Update result count
+        if (this.resultNumber) {
+            this.resultNumber.textContent = this.data.length.toLocaleString();
+        }
+
         // Handle empty data
         if (this.data.length === 0) {
+            this.tbody.innerHTML = '';
             this.tbody.style.display = 'none';
             if (this.noResults) this.noResults.style.display = 'block';
             return;
@@ -74,51 +76,33 @@ class VirtualTableRenderer {
         this.tbody.style.display = '';
         if (this.noResults) this.noResults.style.display = 'none';
 
-        // Update result count
-        if (this.resultNumber) {
-            this.resultNumber.textContent = this.data.length.toLocaleString();
-        }
-
-        // Calculate virtual scroll parameters
-        const scrollTop = this.container.scrollTop;
-        const containerHeight = this.container.clientHeight;
-        const totalHeight = this.data.length * this.rowHeight;
-
-        // Set spacer height to create scrollable area
-        if (this.spacer) {
-            this.spacer.style.height = totalHeight + 'px';
-        }
-
-        // Calculate visible row indices
-        this.virtualScroll.visibleRows = Math.ceil(containerHeight / this.rowHeight);
-        this.virtualScroll.startIndex = Math.max(
-            0,
-            Math.floor(scrollTop / this.rowHeight) - this.bufferSize
-        );
-        this.virtualScroll.endIndex = Math.min(
-            this.data.length,
-            this.virtualScroll.startIndex + this.virtualScroll.visibleRows + (this.bufferSize * 2)
-        );
-
-        // Transform viewport to correct position
-        if (this.viewport) {
-            this.viewport.style.transform = `translateY(${this.virtualScroll.startIndex * this.rowHeight}px)`;
-        }
-
-        // Render only visible rows
         this.renderRows();
+
+        // Rows are a uniform height set by CSS; if the estimate was off,
+        // re-render once with the measured height so rows line up with scroll
+        const measured = measureRowHeight(this.tbody);
+        if (measured && Math.abs(measured - this.rowHeight) > 0.01) {
+            this.rowHeight = measured;
+            this.renderRows();
+        }
     }
 
     /**
-     * Render the visible rows
+     * Render the visible rows between spacer rows
      */
     renderRows() {
-        const visibleData = this.data.slice(
-            this.virtualScroll.startIndex,
-            this.virtualScroll.endIndex
+        const headerHeight = tableHeaderHeight(this.container);
+        const win = computeVirtualWindow(
+            this.container.scrollTop,
+            this.container.clientHeight - headerHeight,
+            this.rowHeight,
+            this.data.length,
+            this.bufferSize
         );
+        this.virtualScroll.startIndex = win.start;
+        this.virtualScroll.endIndex = win.end;
 
-        this.tbody.innerHTML = visibleData.map(file => {
+        const rows = this.data.slice(win.start, win.end).map(file => {
             const sizePercent = this.maxFileSize > 0
                 ? (file.size_bytes / this.maxFileSize * 100).toFixed(1)
                 : 0;
@@ -128,7 +112,7 @@ class VirtualTableRenderer {
                     <td>
                         <div class="file-name">
                             <span class="file-icon">${file.icon}</span>
-                            <span>${escapeHtml(file.name)}</span>
+                            <span title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</span>
                         </div>
                     </td>
                     <td><span class="file-extension">${escapeHtml(file.extension)}</span></td>
@@ -146,6 +130,11 @@ class VirtualTableRenderer {
                 </tr>
             `;
         }).join('');
+
+        this.tbody.innerHTML =
+            virtualSpacerRow(win.topSpacer, this.columnCount) +
+            rows +
+            virtualSpacerRow(win.bottomSpacer, this.columnCount);
     }
 
     /**

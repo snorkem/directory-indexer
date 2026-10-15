@@ -24,6 +24,7 @@ class JavaScriptBundler:
         'common/sorting.js',
 
         # Table components
+        'table/virtualScroll.js',
         'table/VirtualTableRenderer.js',
         'table/TableFilter.js',
         'table/TableSorter.js',
@@ -55,6 +56,7 @@ class JavaScriptBundler:
         'common/sorting.js',
 
         # Table components
+        'table/virtualScroll.js',
         'table/TableSorter.js',
 
         # UI components

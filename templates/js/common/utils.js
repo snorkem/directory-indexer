@@ -43,13 +43,14 @@ function debounce(func, wait) {
 
 /**
  * Escape HTML special characters to prevent XSS
+ * Quotes are escaped too, so the result is safe inside attribute values.
  * @param {string} text - Text to escape
  * @returns {string} HTML-escaped text
  */
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
-    return div.innerHTML;
+    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 /**

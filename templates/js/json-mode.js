@@ -93,8 +93,6 @@ function initializeComponents() {
     // Virtual table renderer
     virtualTableRenderer = new VirtualTableRenderer({
         containerId: 'tableContainer',
-        spacerId: 'tableSpacer',
-        viewportId: 'tableViewport',
         tbodyId: 'tableBody',
         noResultsId: 'noResults',
         resultNumberId: 'resultNumber',

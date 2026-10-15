@@ -28,10 +28,6 @@ th:nth-child(6) { width: var(--col-created-width, 12%); } /* Created */
     background: rgba(102, 126, 234, 0.5);
 }
 
-th {
-    position: relative;
-}
-
 /* Settings Panel */
 .settings-panel {
     padding: 20px 30px;

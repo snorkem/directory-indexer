@@ -191,6 +191,8 @@ td {
     font-size: 13px;
     overflow: hidden;
     text-overflow: ellipsis;
+    /* Uniform row height is required for virtual scrolling: truncate, don't wrap */
+    white-space: nowrap;
 }
 
 tr:hover {
@@ -207,13 +209,18 @@ tr:hover {
     color: #333;
     display: flex;
     align-items: center;
+    min-width: 0;
+}
+
+.file-name > span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .file-path {
     color: #666;
     font-family: 'Monaco', 'Courier New', monospace;
     font-size: 12px;
-    word-break: break-all;
 }
 
 .file-extension {
@@ -356,17 +363,14 @@ tr:hover {
     overflow-x: auto;
 }
 
-.table-spacer {
-    position: relative;
-    width: 100%;
+/* Virtual scroll spacer rows reserve space for rows that aren't rendered */
+tr.virtual-spacer td {
+    padding: 0;
+    border: 0;
 }
 
-.table-viewport {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    will-change: transform;
+tr.virtual-spacer:hover {
+    background: transparent;
 }
 
 .loading-overlay {

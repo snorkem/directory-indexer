@@ -23,16 +23,18 @@ let totalFilteredCount = 0;
 let currentSort = { column: 'name', ascending: true };
 let currentFilter = { search: '', extension: null };
 
-const ROW_HEIGHT = 32;
 const BUFFER_SIZE = 10;
+const TABLE_COLUMNS = 6;
+
+// Row height estimate; replaced by the measured height after the first render
+let rowHeight = 45;
 
 // Columns the All Files table may sort by (interpolated into ORDER BY)
 const SORTABLE_COLUMNS = new Set(['name', 'extension', 'directory', 'size_bytes', 'modified', 'created']);
 
 let virtualScroll = {
     startIndex: 0,
-    endIndex: 0,
-    visibleRows: 0
+    endIndex: 0
 };
 
 // Component instances
@@ -287,12 +289,11 @@ function renderTable() {
     const tbody = document.getElementById('tableBody');
     const noResults = document.getElementById('noResults');
     const container = document.getElementById('tableContainer');
-    const spacer = document.getElementById('tableSpacer');
-    const viewport = document.getElementById('tableViewport');
 
     if (!tbody || !container) return;
 
     if (totalFilteredCount === 0) {
+        tbody.innerHTML = '';
         tbody.style.display = 'none';
         if (noResults) noResults.style.display = 'block';
         return;
@@ -301,23 +302,32 @@ function renderTable() {
     tbody.style.display = '';
     if (noResults) noResults.style.display = 'none';
 
-    // Calculate virtual scroll parameters
-    const scrollTop = container.scrollTop;
-    const containerHeight = container.clientHeight;
-    const totalHeight = totalFilteredCount * ROW_HEIGHT;
+    renderTableRows(tbody, container);
 
-    if (spacer) spacer.style.height = totalHeight + 'px';
-
-    virtualScroll.visibleRows = Math.ceil(containerHeight / ROW_HEIGHT);
-    virtualScroll.startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - BUFFER_SIZE);
-    virtualScroll.endIndex = Math.min(
-        totalFilteredCount,
-        virtualScroll.startIndex + virtualScroll.visibleRows + (BUFFER_SIZE * 2)
-    );
-
-    if (viewport) {
-        viewport.style.transform = `translateY(${virtualScroll.startIndex * ROW_HEIGHT}px)`;
+    // Rows are a uniform height set by CSS; if the estimate was off,
+    // re-render once with the measured height so rows line up with scroll
+    const measured = measureRowHeight(tbody);
+    if (measured && Math.abs(measured - rowHeight) > 0.01) {
+        rowHeight = measured;
+        renderTableRows(tbody, container);
     }
+}
+
+/**
+ * Query and render the rows visible at the current scroll position
+ * @param {HTMLElement} tbody - Table body element
+ * @param {HTMLElement} container - Scroll container element
+ */
+function renderTableRows(tbody, container) {
+    const win = computeVirtualWindow(
+        container.scrollTop,
+        container.clientHeight - tableHeaderHeight(container),
+        rowHeight,
+        totalFilteredCount,
+        BUFFER_SIZE
+    );
+    virtualScroll.startIndex = win.start;
+    virtualScroll.endIndex = win.end;
 
     // Build query
     let query = 'SELECT name, extension, directory, size_bytes, size_human, modified, created, icon FROM files WHERE 1=1';
@@ -338,7 +348,7 @@ function renderTable() {
 
     // Add pagination
     query += ` LIMIT ? OFFSET ?`;
-    params.push(virtualScroll.endIndex - virtualScroll.startIndex, virtualScroll.startIndex);
+    params.push(win.end - win.start, win.start);
 
     // Execute query
     try {
@@ -351,13 +361,8 @@ function renderTable() {
         }
         stmt.free();
 
-        if (rows.length === 0) {
-            tbody.innerHTML = '';
-            return;
-        }
-
-        // Render rows
-        tbody.innerHTML = rows.map(row => {
+        // Render rows between spacers that stand in for unrendered rows
+        const rowsHtml = rows.map(row => {
             const [name, extension, directory, size_bytes, size_human, modified, created, icon] = row;
             const sizePercent = maxFileSize > 0 ? (size_bytes / maxFileSize * 100).toFixed(1) : 0;
             return `
@@ -365,7 +370,7 @@ function renderTable() {
                 <td>
                     <div class="file-name">
                         <span class="file-icon">${escapeHtml(icon)}</span>
-                        <span>${escapeHtml(name)}</span>
+                        <span title="${escapeHtml(name)}">${escapeHtml(name)}</span>
                     </div>
                 </td>
                 <td><span class="file-extension">${escapeHtml(extension)}</span></td>
@@ -382,9 +387,14 @@ function renderTable() {
             `;
         }).join('');
 
+        tbody.innerHTML =
+            virtualSpacerRow(win.topSpacer, TABLE_COLUMNS) +
+            rowsHtml +
+            virtualSpacerRow(win.bottomSpacer, TABLE_COLUMNS);
+
     } catch (error) {
         console.error('Error rendering table:', error);
-        tbody.innerHTML = '<tr><td colspan="6">Error loading data</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="${TABLE_COLUMNS}">Error loading data</td></tr>`;
     }
 }
 
