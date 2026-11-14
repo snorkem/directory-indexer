@@ -2,6 +2,8 @@
 Component Builder
 
 This module provides functionality for building dynamic HTML components
+from __future__ import annotations
+
 from file data and statistics.
 """
 

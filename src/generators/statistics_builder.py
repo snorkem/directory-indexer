@@ -3,6 +3,8 @@ Statistics Builder
 Generates statistics HTML components for the directory indexer
 """
 
+from __future__ import annotations
+
 from typing import Dict, List, Any
 from .component_builder import ComponentBuilder
 from ..config.settings import StatisticsConfig

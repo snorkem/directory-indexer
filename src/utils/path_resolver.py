@@ -4,6 +4,8 @@ Output path resolution utilities.
 This module handles resolving output file paths based on user input and directory structure.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -61,10 +63,11 @@ class OutputPathResolver:
 
     def _create_subfolder_with_relative(self, relative_path: Path) -> str:
         """Create subfolder in root_path based on relative path."""
-        base_name = relative_path.stem  # filename without extension
-        output_dir = self.root_path / base_name
-        output_dir.mkdir(exist_ok=True)
         final_name = self._ensure_html_extension(Path(relative_path.name))
+        # Folder is named after the archive (file name minus ".html"), so a
+        # name with dots such as "v1.2" gives "v1.2/v1.2.html", not "v1/v1.2.html"
+        output_dir = self.root_path / final_name.stem
+        output_dir.mkdir(exist_ok=True)
         return str(output_dir / final_name)
 
     def _auto_generate_path(self) -> str:

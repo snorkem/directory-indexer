@@ -1,21 +1,40 @@
 /**
  * DataService.js
- * Unified interface for data access across JSON and database modes
+ * Folder and file access for browse mode over an in-memory directory tree
  */
 
+// Maximum number of results a global search returns
+const SEARCH_RESULT_LIMIT = 1000;
+
 /**
- * Abstract data service interface for file/folder access
- * Provides a unified API for both JSON (inline) and database modes
+ * Replace the file indices stored in each tree node with the file records
+ * themselves. Archives embed every file once (in the flat file list) and the
+ * tree refers to them by index; this links the two without copying records.
+ * @param {Object} tree - Root directory tree node
+ * @param {Array} files - Flat list of all file records
+ */
+function resolveTreeFileIndices(tree, files) {
+    // Explicit stack to avoid call stack overflow on deeply nested structures
+    const stack = [tree];
+    while (stack.length > 0) {
+        const node = stack.pop();
+        node.files = (node.files || []).map(entry => (typeof entry === 'number' ? files[entry] : entry));
+        Object.values(node.children || {}).forEach(child => stack.push(child));
+    }
+}
+
+/**
+ * Data service for browse mode backed by a directory tree whose nodes
+ * hold their own files. DatabaseBrowseService extends this to load files
+ * from the database on demand.
  */
 class DataService {
     /**
      * Initialize data service
-     * @param {string} mode - Mode: 'inline' (JSON) or 'database' (SQLite)
-     * @param {Object|Object} dataSource - Directory tree (inline) or db instance (database)
+     * @param {Object} directoryTree - Root directory tree node
      */
-    constructor(mode, dataSource) {
-        this.mode = mode; // 'inline' or 'database'
-        this.dataSource = dataSource; // directoryTree or db instance
+    constructor(directoryTree) {
+        this.dataSource = directoryTree;
     }
 
     /**
@@ -24,11 +43,7 @@ class DataService {
      * @returns {Promise<Object>} Folder object with name, path, fileCount, totalSize, children, files
      */
     async getFolder(path) {
-        if (this.mode === 'inline') {
-            return this._getFolderInline(path);
-        } else {
-            return await this._getFolderFromDB(path);
-        }
+        return this._getFolderInline(path);
     }
 
     /**
@@ -44,13 +59,7 @@ class DataService {
             limit: 1000,
             offset: 0
         };
-        const opts = { ...defaults, ...options };
-
-        if (this.mode === 'inline') {
-            return this._getFilesInline(path, opts);
-        } else {
-            return await this._getFilesFromDB(path, opts);
-        }
+        return this._getFilesInline(path, { ...defaults, ...options });
     }
 
     /**
@@ -59,42 +68,35 @@ class DataService {
      * @returns {Promise<Array>} Array of matching files and folders
      */
     async searchGlobal(query) {
-        if (this.mode === 'inline') {
-            return this._searchInline(query);
-        } else {
-            return await this._searchDB(query);
-        }
+        return this._searchInline(query);
     }
 
     /**
-     * Get all files (for files tab)
-     * @returns {Promise<Array>} Array of all files
+     * Find a tree node by path
+     * @param {string} path - Folder path ('' for the root)
+     * @returns {Object|null} Tree node, or null if the path doesn't exist
+     * @private
      */
-    async getAllFiles() {
-        if (this.mode === 'inline') {
-            return this._getAllFilesInline();
-        } else {
-            return await this._getAllFilesFromDB();
+    _findNode(path) {
+        let node = this.dataSource;
+        if (path) {
+            for (const part of path.split('/')) {
+                node = node.children[part];
+                if (!node) return null;
+            }
         }
+        return node;
     }
 
-    // ============ INLINE MODE IMPLEMENTATIONS ============
-
     /**
-     * Get folder from inline tree structure
+     * Get folder from the tree structure
      * @param {string} path - Folder path
      * @returns {Object} Folder object
      * @private
      */
     _getFolderInline(path) {
-        let node = this.dataSource; // directoryTree root
-        if (path) {
-            const parts = path.split('/');
-            for (const part of parts) {
-                node = node.children[part];
-                if (!node) return null;
-            }
-        }
+        const node = this._findNode(path);
+        if (!node) return null;
         return {
             name: node.name,
             path: path,
@@ -106,7 +108,7 @@ class DataService {
     }
 
     /**
-     * Get files in a folder from inline tree structure
+     * Get files in a folder from the tree structure
      * @param {string} path - Folder path
      * @param {Object} opts - Options for filtering/sorting
      * @returns {Object} Object with items and total
@@ -164,38 +166,35 @@ class DataService {
     }
 
     /**
-     * Search inline tree structure (iterative to avoid stack overflow)
+     * Search the whole tree for matching folders and files
      * @param {string} query - Search query
-     * @returns {Array} Array of matching items
+     * @returns {Array} Matching folders, then matching files (limited to SEARCH_RESULT_LIMIT)
      * @private
      */
     _searchInline(query) {
-        const results = [];
         const queryLower = query.toLowerCase();
+        const folders = this._matchingFolders(queryLower, SEARCH_RESULT_LIMIT);
+        const files = this._matchingFiles(queryLower, SEARCH_RESULT_LIMIT - folders.length);
+        return [...folders, ...files];
+    }
 
-        // Use explicit stack to avoid call stack overflow on deeply nested structures
+    /**
+     * Find folders whose name contains the query (iterative to avoid stack overflow)
+     * @param {string} queryLower - Lowercased search query
+     * @param {number} limit - Maximum number of results
+     * @returns {Array} Matching folder items
+     * @private
+     */
+    _matchingFolders(queryLower, limit) {
+        const results = [];
         const stack = [{ node: this.dataSource, currentPath: '' }];
 
-        while (stack.length > 0 && results.length < 1000) {
+        while (stack.length > 0 && results.length < limit) {
             const { node, currentPath } = stack.pop();
 
-            // Search files in current node
-            (node.files || []).forEach(file => {
-                if (results.length >= 1000) return;
-                if (file.name.toLowerCase().includes(queryLower) ||
-                    file.extension.toLowerCase().includes(queryLower)) {
-                    results.push({
-                        ...file,
-                        path: currentPath,
-                        type: 'file'
-                    });
-                }
-            });
-
-            // Search folder names and queue children
             Object.entries(node.children || {}).forEach(([name, child]) => {
                 const childPath = currentPath ? `${currentPath}/${name}` : name;
-                if (name.toLowerCase().includes(queryLower) && results.length < 1000) {
+                if (name.toLowerCase().includes(queryLower) && results.length < limit) {
                     results.push({
                         type: 'folder',
                         name: name,
@@ -208,39 +207,41 @@ class DataService {
             });
         }
 
-        return results.slice(0, 1000); // Limit to 1000 results
+        return results;
     }
 
     /**
-     * Get all files from inline tree structure (iterative to avoid stack overflow)
-     * @returns {Array} Array of all files
+     * Find files whose name or extension contains the query (iterative to avoid stack overflow)
+     * @param {string} queryLower - Lowercased search query
+     * @param {number} limit - Maximum number of results
+     * @returns {Array} Matching file items
      * @private
      */
-    _getAllFilesInline() {
-        const allFiles = [];
-
-        // Use explicit stack to avoid call stack overflow on deeply nested structures
+    _matchingFiles(queryLower, limit) {
+        const results = [];
         const stack = [{ node: this.dataSource, currentPath: '' }];
 
-        while (stack.length > 0) {
+        while (stack.length > 0 && results.length < limit) {
             const { node, currentPath } = stack.pop();
 
-            // Collect files from current node
-            (node.files || []).forEach(file => {
-                allFiles.push({
-                    ...file,
-                    directory: currentPath
-                });
-            });
+            for (const file of node.files || []) {
+                if (results.length >= limit) break;
+                if (file.name.toLowerCase().includes(queryLower) ||
+                    file.extension.toLowerCase().includes(queryLower)) {
+                    results.push({
+                        ...file,
+                        path: currentPath,
+                        type: 'file'
+                    });
+                }
+            }
 
-            // Queue child folders for processing
             Object.entries(node.children || {}).forEach(([name, child]) => {
-                const childPath = currentPath ? `${currentPath}/${name}` : name;
-                stack.push({ node: child, currentPath: childPath });
+                stack.push({ node: child, currentPath: currentPath ? `${currentPath}/${name}` : name });
             });
         }
 
-        return allFiles;
+        return results;
     }
 
     /**
@@ -254,325 +255,5 @@ class DataService {
         return items.sort((a, b) =>
             compareWithFoldersFirst(a, b, sort.column, sort.ascending, false)
         );
-    }
-
-    // ============ DATABASE MODE IMPLEMENTATIONS ============
-
-    /**
-     * Get folder from database
-     * @param {string} path - Folder path
-     * @returns {Promise<Object>} Folder object
-     * @private
-     */
-    async _getFolderFromDB(path) {
-        try {
-            // Get direct files in this folder
-            const filesQuery = path === '' || path === null
-                ? `SELECT name, extension, directory, size_bytes, modified, created, icon FROM files WHERE directory = '' OR directory IS NULL`
-                : `SELECT name, extension, directory, size_bytes, modified, created, icon FROM files WHERE directory = ?`;
-
-            const filesStmt = this.dataSource.prepare(filesQuery);
-            if (path) {
-                filesStmt.bind([path]);
-            }
-
-            const files = [];
-            while (filesStmt.step()) {
-                const row = filesStmt.get();
-                files.push({
-                    name: row[0],
-                    extension: row[1],
-                    size: row[3],
-                    modified: row[4],
-                    created: row[5],
-                    icon: row[6]
-                });
-            }
-            filesStmt.free();
-
-            // Get child folders by finding unique directory prefixes
-            const childFolders = new Set();
-            const pathPrefix = path ? `${path}/` : '';
-            const pathPrefixPattern = path ? `${path}/%` : '%';
-
-            const dirsQuery = `SELECT DISTINCT directory FROM files WHERE directory LIKE ?`;
-            const dirsStmt = this.dataSource.prepare(dirsQuery);
-            dirsStmt.bind([pathPrefixPattern]);
-
-            while (dirsStmt.step()) {
-                const dir = dirsStmt.get()[0];
-                if (dir && dir !== path) {
-                    // Check if this is a direct child
-                    if (path === '' || path === null) {
-                        // Root level - get first segment
-                        const firstSegment = dir.split('/')[0];
-                        if (firstSegment) {
-                            childFolders.add(firstSegment);
-                        }
-                    } else if (dir.startsWith(pathPrefix)) {
-                        // Get the next segment after the current path
-                        const remainder = dir.substring(pathPrefix.length);
-                        const nextSegment = remainder.split('/')[0];
-                        if (nextSegment) {
-                            childFolders.add(nextSegment);
-                        }
-                    }
-                }
-            }
-            dirsStmt.free();
-
-            // Get folder stats
-            const stats = await this._getFolderStats(path);
-
-            // Get folder name
-            const folderName = path ? path.split('/').pop() : 'root';
-
-            return {
-                name: folderName,
-                path: path || '',
-                fileCount: stats.fileCount,
-                totalSize: stats.totalSize,
-                children: Array.from(childFolders).sort(),
-                files: files
-            };
-        } catch (error) {
-            console.error('Error getting folder from database:', error);
-            return { name: 'root', path: '', fileCount: 0, totalSize: 0, children: [], files: [] };
-        }
-    }
-
-    /**
-     * Get files from database
-     * @param {string} path - Folder path
-     * @param {Object} opts - Options
-     * @returns {Promise<Object>} Object with items and total
-     * @private
-     */
-    async _getFilesFromDB(path, opts) {
-        try {
-            const folder = await this._getFolderFromDB(path);
-            if (!folder) return { items: [], total: 0 };
-
-            let files = [...folder.files];
-
-            // Apply search filter to files
-            if (opts.search) {
-                const query = opts.search.toLowerCase();
-                files = files.filter(f =>
-                    f.name.toLowerCase().includes(query) ||
-                    f.extension.toLowerCase().includes(query)
-                );
-            }
-
-            // Get child folders with stats
-            let folders = [];
-            for (const childName of folder.children) {
-                const childPath = path ? `${path}/${childName}` : childName;
-                const stats = await this._getFolderStats(childPath);
-
-                folders.push({
-                    type: 'folder',
-                    name: childName,
-                    fileCount: stats.fileCount,
-                    totalSize: stats.totalSize,
-                    path: childPath
-                });
-            }
-
-            // Apply search filter to folders
-            if (opts.search) {
-                const query = opts.search.toLowerCase();
-                folders = folders.filter(f => f.name.toLowerCase().includes(query));
-            }
-
-            // Sort folders and files separately
-            folders = this._sortItems(folders, opts.sort);
-            files = this._sortItems(files, opts.sort);
-
-            // Combine with folders first (if foldersFirst is enabled)
-            const combined = opts.sort.foldersFirst ? [...folders, ...files] : [...folders, ...files].sort((a, b) =>
-                compareWithFoldersFirst(a, b, opts.sort.column, opts.sort.ascending, false)
-            );
-
-            const total = combined.length;
-
-            // Apply pagination
-            const paginated = combined.slice(opts.offset, opts.offset + opts.limit);
-
-            return { items: paginated, total };
-        } catch (error) {
-            console.error('Error getting files from database:', error);
-            return { items: [], total: 0 };
-        }
-    }
-
-    /**
-     * Search database
-     * @param {string} query - Search query
-     * @returns {Promise<Array>} Search results
-     * @private
-     */
-    async _searchDB(query) {
-        try {
-            const queryLower = query.toLowerCase();
-            const searchPattern = `%${queryLower}%`;
-
-            const sql = `
-                SELECT name, extension, directory, size_bytes, modified, created, icon
-                FROM files
-                WHERE LOWER(name) LIKE ? OR LOWER(extension) LIKE ? OR LOWER(directory) LIKE ?
-                ORDER BY name ASC
-                LIMIT 1000
-            `;
-
-            const stmt = this.dataSource.prepare(sql);
-            stmt.bind([searchPattern, searchPattern, searchPattern]);
-
-            const results = [];
-            while (stmt.step()) {
-                const row = stmt.get();
-                const directory = row[2];
-                const fullPath = directory ? `${directory}/${row[0]}` : row[0];
-
-                results.push({
-                    type: 'file',
-                    name: row[0],
-                    extension: row[1],
-                    path: directory,
-                    directory: directory,
-                    size: row[3],
-                    totalSize: row[3],
-                    modified: row[4],
-                    created: row[5],
-                    icon: row[6]
-                });
-            }
-            stmt.free();
-
-            // Also search for matching folder names by extracting unique directories
-            const folderMatches = new Set();
-            const folderQuery = `
-                SELECT DISTINCT directory
-                FROM files
-                WHERE LOWER(directory) LIKE ?
-                LIMIT 200
-            `;
-
-            const folderStmt = this.dataSource.prepare(folderQuery);
-            folderStmt.bind([searchPattern]);
-
-            while (folderStmt.step()) {
-                const dir = folderStmt.get()[0];
-                if (dir) {
-                    // Split directory path and check each part for matches
-                    const parts = dir.split('/');
-                    let currentPath = '';
-                    for (const part of parts) {
-                        currentPath = currentPath ? `${currentPath}/${part}` : part;
-                        if (part.toLowerCase().includes(queryLower) && !folderMatches.has(currentPath)) {
-                            folderMatches.add(currentPath);
-                        }
-                    }
-                }
-            }
-            folderStmt.free();
-
-            // Add folder matches to results
-            for (const folderPath of folderMatches) {
-                // Get stats for this folder
-                const stats = await this._getFolderStats(folderPath);
-                const folderName = folderPath.split('/').pop();
-                const parentPath = folderPath.substring(0, folderPath.lastIndexOf('/'));
-
-                results.push({
-                    type: 'folder',
-                    name: folderName,
-                    path: parentPath || '',
-                    fileCount: stats.fileCount,
-                    totalSize: stats.totalSize
-                });
-            }
-
-            return results.slice(0, 1000); // Limit to 1000 total results
-        } catch (error) {
-            console.error('Error searching database:', error);
-            return [];
-        }
-    }
-
-    /**
-     * Get all files from database
-     * @returns {Promise<Array>} Array of all files
-     * @private
-     */
-    async _getAllFilesFromDB() {
-        try {
-            const query = 'SELECT name, extension, directory, size_bytes, modified, created, icon FROM files ORDER BY name ASC';
-            const stmt = this.dataSource.prepare(query);
-
-            const allFiles = [];
-            while (stmt.step()) {
-                const row = stmt.get();
-                allFiles.push({
-                    name: row[0],
-                    extension: row[1],
-                    directory: row[2],
-                    size: row[3],
-                    modified: row[4],
-                    created: row[5],
-                    icon: row[6]
-                });
-            }
-            stmt.free();
-
-            return allFiles;
-        } catch (error) {
-            console.error('Error querying all files from database:', error);
-            return [];
-        }
-    }
-
-    /**
-     * Get folder statistics (file count and total size)
-     * @param {string} path - Folder path
-     * @returns {Promise<Object>} Object with fileCount and totalSize
-     * @private
-     */
-    async _getFolderStats(path) {
-        try {
-            // Query for files in this folder and all subfolders
-            let query, params;
-
-            if (path === '' || path === null) {
-                // Root folder - count all files
-                query = 'SELECT COUNT(*) as count, COALESCE(SUM(size_bytes), 0) as total_size FROM files';
-                params = [];
-            } else {
-                // Specific folder - count files in this folder and subfolders
-                query = `
-                    SELECT COUNT(*) as count, COALESCE(SUM(size_bytes), 0) as total_size
-                    FROM files
-                    WHERE directory = ? OR directory LIKE ?
-                `;
-                params = [path, `${path}/%`];
-            }
-
-            const stmt = this.dataSource.prepare(query);
-            if (params.length > 0) {
-                stmt.bind(params);
-            }
-            stmt.step();
-
-            const result = stmt.get();
-            stmt.free();
-
-            return {
-                fileCount: result[0] || 0,
-                totalSize: result[1] || 0
-            };
-        } catch (error) {
-            console.error('Error getting folder stats:', error);
-            return { fileCount: 0, totalSize: 0 };
-        }
     }
 }

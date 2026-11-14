@@ -4,6 +4,8 @@ Scan result data model.
 This module defines the ScanResult class for encapsulating directory scan results.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Union
 from .file_info import FileInfo

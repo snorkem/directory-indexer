@@ -22,12 +22,6 @@ let maxFileSize = 0;
 let currentSort = { column: 'name', ascending: true };
 let currentFilter = { search: '', extension: 'all' };
 
-let virtualScroll = {
-    startIndex: 0,
-    endIndex: 0,
-    visibleRows: 0
-};
-
 // Component instances
 let virtualTableRenderer = null;
 let columnManager = null;
@@ -51,7 +45,9 @@ async function initializeApp() {
         const directoryTree = window.directoryTree;
         const fileData = window.fileData;
 
-        dataService = new JsonDataLoader(directoryTree, fileData);
+        // The tree refers to files by index into fileData; link the records in
+        resolveTreeFileIndices(directoryTree, fileData);
+        dataService = new DataService(directoryTree);
 
         // Set global data
         tableData = fileData;
@@ -144,12 +140,6 @@ function setupEventListeners() {
         });
     });
 
-    // Virtual scroll
-    const tableContainer = document.getElementById('tableContainer');
-    if (tableContainer) {
-        tableContainer.addEventListener('scroll', throttle(renderTable, 16));
-    }
-
     // Tab switching
     document.querySelectorAll('.tab').forEach(tab => {
         tab.addEventListener('click', () => {
@@ -198,9 +188,6 @@ function handleFilterChange() {
 
         return matchesSearch && matchesExtension;
     });
-
-    // Update filtered count
-    updateFilteredCount();
 
     // Re-sort filtered data
     sortData(filteredData);
@@ -265,34 +252,6 @@ function sortData(data) {
 }
 
 /**
- * Update sort indicator arrows in table headers
- */
-function updateSortHeaders() {
-    document.querySelectorAll('#fileTable th[data-column]').forEach(header => {
-        header.classList.remove('sort-asc', 'sort-desc');
-        if (header.dataset.column === currentSort.column) {
-            header.classList.add(currentSort.ascending ? 'sort-asc' : 'sort-desc');
-        }
-    });
-}
-
-/**
- * Update filtered file count display
- */
-function updateFilteredCount() {
-    const fileCount = document.getElementById('fileCount');
-    if (fileCount) {
-        const filtered = filteredData.length;
-        const total = tableData.length;
-        if (filtered === total) {
-            fileCount.textContent = `${total.toLocaleString()} files`;
-        } else {
-            fileCount.textContent = `${filtered.toLocaleString()} of ${total.toLocaleString()} files`;
-        }
-    }
-}
-
-/**
  * Render the virtual table
  */
 function renderTable() {
@@ -317,74 +276,6 @@ async function initializeBrowseMode() {
     } catch (error) {
         console.error('Error initializing browse mode:', error);
     }
-}
-
-// ====================================================================
-// Data Loading
-// ====================================================================
-
-/**
- * Load data in chunks (for large datasets)
- * This function handles progressive loading with progress indicators
- */
-async function loadDataInChunks() {
-    const CHUNK_SIZE = 1000;
-    let chunksLoaded = 0;
-    const totalChunks = Math.ceil(tableData.length / CHUNK_SIZE);
-
-    function loadNextChunk() {
-        if (chunksLoaded >= totalChunks) {
-            // All chunks loaded
-            document.getElementById('loadingOverlay').classList.add('hidden');
-            return;
-        }
-
-        const start = chunksLoaded * CHUNK_SIZE;
-        const end = Math.min(start + CHUNK_SIZE, tableData.length);
-        const chunk = tableData.slice(start, end);
-
-        chunksLoaded++;
-
-        // Update progress
-        const progress = Math.round((chunksLoaded / totalChunks) * 100);
-        const progressFill = document.getElementById('loadingProgressFill');
-        const loadingStats = document.getElementById('loadingStats');
-
-        if (progressFill && loadingStats) {
-            progressFill.style.width = progress + '%';
-            progressFill.textContent = progress + '%';
-            loadingStats.textContent = `Loaded ${filteredData.length.toLocaleString()} of ${tableData.length.toLocaleString()} files...`;
-        }
-
-        // Update maxFileSize incrementally
-        if (chunk.length > 0) {
-            const chunkMax = chunk.reduce((max, f) => Math.max(max, f.size_bytes || 0), 0);
-            maxFileSize = Math.max(maxFileSize, chunkMax);
-        }
-
-        // Initialize UI on first chunk
-        if (chunksLoaded === 1) {
-            try {
-                updateSortHeaders();
-                columnManager.init();
-                tooltip.init();
-            } catch (initError) {
-                console.error('Error during initialization:', initError);
-            }
-        }
-
-        // Update table
-        try {
-            renderTable();
-        } catch (renderError) {
-            console.error('Error rendering table:', renderError);
-        }
-
-        // Load next chunk with small delay to keep UI responsive
-        setTimeout(loadNextChunk, 50);
-    }
-
-    loadNextChunk();
 }
 
 // ====================================================================

@@ -3,7 +3,9 @@ Script Generators
 Generates helper scripts for running the directory indexer viewer
 """
 
-import os
+from __future__ import annotations
+
+from pathlib import Path
 from urllib.parse import quote
 
 from ..config.settings import ServerConfig
@@ -39,6 +41,7 @@ import socketserver
 import socket
 import os
 import sys
+from pathlib import Path
 
 # Port configuration
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else {port}
@@ -78,7 +81,7 @@ class ViewerRequestHandler(http.server.SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     # Change to script directory
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    os.chdir(Path(__file__).resolve().parent)
 
     Handler = ViewerRequestHandler
 
@@ -86,7 +89,8 @@ if __name__ == "__main__":
         with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
             # Output port for launcher scripts to parse (flush immediately)
             print(f"ACTUAL_PORT={{PORT}}", flush=True)
-            sys.stdout.flush()
+            # Our own process ID, so launchers can stop exactly this server
+            print(f"SERVER_PID={{os.getpid()}}", flush=True)
             print("=" * 60)
             print("Directory Index Viewer Server")
             print("=" * 60)
@@ -107,17 +111,16 @@ if __name__ == "__main__":
             raise
 '''
 
-    server_path = os.path.join(output_dir, 'serve.py')
-    with open(server_path, 'w') as f:
-        f.write(server_script)
+    server_path = Path(output_dir) / 'serve.py'
+    server_path.write_text(server_script)
 
     # Make executable on Unix-like systems
     try:
-        os.chmod(server_path, 0o755)
+        server_path.chmod(0o755)
     except (NotImplementedError, OSError):
         pass  # Windows doesn't support chmod or filesystem doesn't support permissions
 
-    return server_path
+    return str(server_path)
 
 
 def generate_launcher_scripts(
@@ -221,7 +224,6 @@ wait $SERVER_PID
 
     # Windows .bat script - navigates to ..\data\
     windows_script = f'''@echo off
-setlocal EnableDelayedExpansion
 REM Directory Index Viewer Launcher (Windows)
 REM Double-click this file to start the server and open the viewer
 
@@ -235,29 +237,26 @@ echo.
 echo Working directory: %CD%
 echo.
 
-REM Set temporary files
+REM Set temporary log file
 set "LOG_FILE=%TEMP%\\serve_output_%RANDOM%.log"
-set "PID_FILE=%TEMP%\\serve_pid_%RANDOM%.txt"
 
 REM Start the Python server in background and capture output
 REM Note: Not passing port argument to allow auto-port detection
 start /b cmd /c "python serve.py > "%LOG_FILE%" 2>&1"
 
-REM Capture the PID using WMIC (wait a moment for process to start)
-timeout /t 1 /nobreak >nul
-for /f "tokens=2 delims=," %%i in ('wmic process where "commandline like '%%python%%serve.py%%'" get processid /format:csv 2^>nul ^| findstr /r "[0-9]"') do (
-    echo %%i> "%PID_FILE%"
-)
-
 echo Server starting...
 echo.
 
-REM Wait for server to start and output port
-timeout /t 2 /nobreak >nul
+REM Wait for server to start and output its port and process ID
+timeout /t 3 /nobreak >nul
 
 REM Extract the actual port from server output
 set ACTUAL_PORT=
 for /f "tokens=2 delims==" %%i in ('findstr /b "ACTUAL_PORT=" "%LOG_FILE%" 2^>nul') do set ACTUAL_PORT=%%i
+
+REM Process ID the server reported for itself (used to stop exactly this server)
+set SERVER_PID=
+for /f "tokens=2 delims==" %%i in ('findstr /b "SERVER_PID=" "%LOG_FILE%" 2^>nul') do set SERVER_PID=%%i
 
 REM If port not found, use default
 if "%ACTUAL_PORT%"=="" (
@@ -284,17 +283,11 @@ REM Cleanup
 echo.
 echo Stopping server...
 
-REM Use stored PID if available, otherwise fall back to command line matching
-REM SERVER_PID is read with !...! because %...% is expanded before set /p runs
-if exist "%PID_FILE%" (
-    set /p SERVER_PID=<"%PID_FILE%"
-    taskkill /f /pid !SERVER_PID! >nul 2>&1
-    del /f /q "%PID_FILE%" >nul 2>&1
+if "%SERVER_PID%"=="" (
+    echo Could not determine the server process. Close this window to stop the server.
+    pause >nul
 ) else (
-    REM Fallback: find and kill by command line
-    for /f "tokens=2 delims=," %%i in ('wmic process where "commandline like '%%python%%serve.py%%'" get processid /format:csv 2^>nul ^| findstr /r "[0-9]"') do (
-        taskkill /f /pid %%i >nul 2>&1
-    )
+    taskkill /f /pid %SERVER_PID% >nul 2>&1
 )
 
 del /f /q "%LOG_FILE%" >nul 2>&1
@@ -388,30 +381,27 @@ wait $SERVER_PID
 '''
 
     # Write macOS script
-    macos_path = os.path.join(macos_dir, 'start-viewer.command')
-    with open(macos_path, 'w') as f:
-        f.write(macos_script)
+    macos_path = Path(macos_dir) / 'start-viewer.command'
+    macos_path.write_text(macos_script)
 
     # Make macOS script executable
     try:
-        os.chmod(macos_path, 0o755)
+        macos_path.chmod(0o755)
     except (NotImplementedError, OSError):
         pass
 
     # Write Windows script
-    windows_path = os.path.join(windows_dir, 'start-viewer.bat')
-    with open(windows_path, 'w') as f:
-        f.write(windows_script)
+    windows_path = Path(windows_dir) / 'start-viewer.bat'
+    windows_path.write_text(windows_script)
 
     # Write Linux script
-    linux_path = os.path.join(linux_dir, 'start-viewer.sh')
-    with open(linux_path, 'w') as f:
-        f.write(linux_script)
+    linux_path = Path(linux_dir) / 'start-viewer.sh'
+    linux_path.write_text(linux_script)
 
     # Make Linux script executable
     try:
-        os.chmod(linux_path, 0o755)
+        linux_path.chmod(0o755)
     except (NotImplementedError, OSError):
         pass
 
-    return macos_path, windows_path, linux_path
+    return str(macos_path), str(windows_path), str(linux_path)

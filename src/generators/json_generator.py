@@ -3,6 +3,8 @@ JSON Mode Generator
 Generates HTML with embedded JSON data for directory indexer
 """
 
+from __future__ import annotations
+
 import sys
 from datetime import datetime
 from html import escape as html_escape
@@ -269,6 +271,8 @@ window.directoryTree = {context['directory_tree_json']};
         Returns:
             JSON string of file data
         """
-        # Convert to JSON with minimal formatting for size
-        return script_safe_json(files_data)
+        # 'relative_path' duplicates 'path' and nothing in the page reads it
+        records = [{key: value for key, value in f.items() if key != 'relative_path'}
+                   for f in files_data]
+        return script_safe_json(records)
 

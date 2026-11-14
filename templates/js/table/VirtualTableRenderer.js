@@ -81,7 +81,7 @@ class VirtualTableRenderer {
         // Rows are a uniform height set by CSS; if the estimate was off,
         // re-render once with the measured height so rows line up with scroll
         const measured = measureRowHeight(this.tbody);
-        if (measured && Math.abs(measured - this.rowHeight) > 0.01) {
+        if (measured && Math.abs(measured - this.rowHeight) > ROW_HEIGHT_TOLERANCE) {
             this.rowHeight = measured;
             this.renderRows();
         }

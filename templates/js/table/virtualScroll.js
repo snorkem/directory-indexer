@@ -60,6 +60,14 @@ function virtualSpacerRow(height, columnCount) {
 }
 
 /**
+ * How far (px) the measured row height may differ from the one in use before
+ * rows are re-rendered. The average shifts by hundredths of a pixel as the
+ * rendered rows change; a mismatch only offsets rows by at most
+ * bufferSize x difference, so chasing tiny changes just renders twice.
+ */
+const ROW_HEIGHT_TOLERANCE = 0.25;
+
+/**
  * Measure the average rendered height of the data rows
  * Averaged over all rendered rows because collapsed table borders make
  * individual rows alternate by fractions of a pixel.

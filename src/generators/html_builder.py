@@ -2,6 +2,8 @@
 HTML Template Builder
 
 This module provides functionality for loading and assembling HTML templates
+from __future__ import annotations
+
 from separate component files.
 """
 

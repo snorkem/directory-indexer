@@ -34,7 +34,7 @@ def test_intermediate_folders_include_nested_files():
 
 
 def test_files_attached_only_to_direct_parent():
-    """Aggregation must not duplicate file entries into ancestor folders."""
+    """Each folder lists its own files (as indices into the file list), not its descendants'."""
     tree = _build([
         _file('root.txt', 1),
         _file('Projects/2024/a.mov', 100),
@@ -44,12 +44,10 @@ def test_files_attached_only_to_direct_parent():
     projects = tree['children']['Projects']
     year = projects['children']['2024']
 
-    assert [f['relative_path'] for f in tree['files']] == ['root.txt']
+    assert tree['files'] == [0]
     assert projects['files'] == []
-    assert [f['relative_path'] for f in year['files']] == ['Projects/2024/a.mov']
-    assert [f['relative_path'] for f in year['children']['Day1']['files']] == [
-        'Projects/2024/Day1/b.mov'
-    ]
+    assert year['files'] == [1]
+    assert year['children']['Day1']['files'] == [2]
 
 
 def test_sibling_folders_aggregate_independently():

@@ -5,7 +5,8 @@ This module provides database creation and management functionality for storing
 file information when the dataset is too large for JSON mode.
 """
 
-import os
+from __future__ import annotations
+
 import sqlite3
 from datetime import datetime
 from typing import List, Dict, Any
@@ -54,8 +55,9 @@ class DatabaseManager:
         print(f"\nCreating SQLite database: {self.db_path}")
 
         # Remove existing database if it exists
-        if os.path.exists(self.db_path):
-            os.remove(self.db_path)
+        db_file = Path(self.db_path)
+        if db_file.exists():
+            db_file.unlink()
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -71,7 +73,7 @@ class DatabaseManager:
         conn.commit()
         conn.close()
 
-        db_size = os.path.getsize(self.db_path)
+        db_size = db_file.stat().st_size
         print(f"✓ Database created: {self.db_path}")
         print(f"  Database size: {SizeFormatter.format_size(db_size)}")
         return db_size

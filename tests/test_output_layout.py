@@ -48,3 +48,10 @@ def test_absolute_file_output_gets_its_own_folder(tmp_path):
     _run_indexer(str(root), str(out_dir / 'archive.html'), '--extdb')
 
     _assert_archive_at(out_dir / 'archive', 'archive')
+
+
+def test_relative_output_name_containing_a_dot_is_not_nested_twice(tmp_path):
+    root = _make_source(tmp_path)
+    _run_indexer(str(root), 'v1.2', '--extdb')
+
+    _assert_archive_at(root / 'v1.2', 'v1.2')

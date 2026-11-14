@@ -3,6 +3,8 @@ Database Mode Generator
 Generates HTML viewer with external SQLite database for directory indexer
 """
 
+from __future__ import annotations
+
 import sys
 import shutil
 from datetime import datetime

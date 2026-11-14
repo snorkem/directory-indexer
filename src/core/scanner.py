@@ -5,6 +5,8 @@ This module provides the DirectoryScanner class for recursively scanning directo
 and collecting file metadata.
 """
 
+from __future__ import annotations
+
 import os
 from pathlib import Path
 from datetime import datetime

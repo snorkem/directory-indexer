@@ -4,6 +4,8 @@ Formatting utilities for Directory Indexer.
 This module provides utilities for formatting file sizes and mapping file extensions to icons.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timedelta
 
 _EPOCH = datetime(1970, 1, 1)

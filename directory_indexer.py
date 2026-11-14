@@ -8,6 +8,8 @@ with names, full paths, sizes, and extensions.
 This is the refactored entry point that uses the modular architecture from src/.
 """
 
+from __future__ import annotations
+
 import sys
 import argparse
 from pathlib import Path
@@ -72,11 +74,11 @@ def run_json_mode(scan_result, root_path: str, output_file: str, force_json: boo
     tree_builder = DirectoryTreeBuilder(Path(root_path))
     directory_tree = tree_builder.build_tree(files_as_dicts)
 
-    # Generate HTML with embedded JSON (generator handles both FileInfo and dicts)
+    # Generate HTML with embedded JSON (reusing the dicts built for the tree)
     print(f"Generating HTML archive...")
     generator = JsonGenerator()
     generator.generate(
-        scan_result.files_data,
+        files_as_dicts,
         root_path,
         scan_result.total_size,
         scan_result.extension_stats,

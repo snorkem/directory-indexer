@@ -3,6 +3,8 @@ JavaScript Bundler
 Combines multiple JavaScript modules into a single bundled script for HTML embedding
 """
 
+from __future__ import annotations
+
 import os
 from pathlib import Path
 from typing import List, Optional
@@ -26,8 +28,6 @@ class JavaScriptBundler:
         # Table components
         'table/virtualScroll.js',
         'table/VirtualTableRenderer.js',
-        'table/TableFilter.js',
-        'table/TableSorter.js',
 
         # UI components
         'components/ColumnManager.js',
@@ -36,7 +36,6 @@ class JavaScriptBundler:
 
         # Data layer (depends on common utilities)
         'data/DataService.js',
-        'data/JsonDataLoader.js',
 
         # Browse mode (depends on data layer and utilities)
         'browse/BrowseState.js',
@@ -57,18 +56,16 @@ class JavaScriptBundler:
 
         # Table components
         'table/virtualScroll.js',
-        'table/TableSorter.js',
 
-        # UI components
-        'components/ColumnManager.js',
+        # UI components (DB mode has no column settings or path tooltip)
         'components/TabManager.js',
-        'components/Tooltip.js',
 
         # Data layer (database-specific)
         'data/DataService.js',
-        'data/DatabaseLoader.js',
+        'data/sqlSearch.js',
+        'data/DatabaseBrowseService.js',
 
-        # Browse mode (limited support in DB mode)
+        # Browse mode (folders loaded from the database on demand)
         'browse/BrowseState.js',
         'browse/TreeRenderer.js',
         'browse/FileListRenderer.js',

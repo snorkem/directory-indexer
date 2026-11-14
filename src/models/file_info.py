@@ -4,6 +4,8 @@ File information data model.
 This module defines the FileInfo class for representing file metadata.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Dict, Any, Optional
 

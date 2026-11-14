@@ -33,6 +33,10 @@ class FileListRenderer {
     render(items, total) {
         this.tbody.innerHTML = '';
 
+        if (this.countElement) {
+            this.countElement.textContent = `${total} items`;
+        }
+
         if (items.length === 0) {
             this.tbody.style.display = 'none';
             this.emptyState.style.display = 'flex';
@@ -46,11 +50,6 @@ class FileListRenderer {
             const row = this._createFileRow(item);
             this.tbody.appendChild(row);
         });
-
-        // Update count
-        if (this.countElement) {
-            this.countElement.textContent = `${total} items`;
-        }
     }
 
     /**
@@ -59,6 +58,11 @@ class FileListRenderer {
      */
     renderSearchResults(results) {
         this.tbody.innerHTML = '';
+
+        if (this.countElement) {
+            const limited = results.length >= SEARCH_RESULT_LIMIT ? ` (limited to ${SEARCH_RESULT_LIMIT})` : '';
+            this.countElement.textContent = `${results.length} results${limited}`;
+        }
 
         if (results.length === 0) {
             this.tbody.style.display = 'none';
@@ -88,11 +92,6 @@ class FileListRenderer {
                 this.tbody.appendChild(row);
             });
         });
-
-        // Show result count
-        if (this.countElement) {
-            this.countElement.textContent = `${results.length} results (limited to 1000)`;
-        }
     }
 
     /**

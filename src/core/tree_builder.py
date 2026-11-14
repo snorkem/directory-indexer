@@ -2,6 +2,8 @@
 Directory tree building for Directory Indexer.
 
 This module provides functionality to build hierarchical tree structures
+from __future__ import annotations
+
 from flat file lists for visualization purposes.
 """
 
@@ -31,7 +33,9 @@ class DirectoryTreeBuilder:
         Build a hierarchical tree structure from flat file list.
 
         Creates a nested dictionary representing the folder hierarchy with
-        file counts, total sizes, and file lists at each level.
+        file counts, total sizes, and file lists at each level. Each folder's
+        'files' holds indices into files_data rather than copies of the
+        records, so the embedded data stores every file only once.
 
         Args:
             files_data: List of file information dictionaries
@@ -49,7 +53,7 @@ class DirectoryTreeBuilder:
             'files': []
         }
 
-        for file_info in files_data:
+        for index, file_info in enumerate(files_data):
             # Split the relative path into parts
             rel_path = file_info['relative_path']
             parts = Path(rel_path).parts
@@ -78,7 +82,7 @@ class DirectoryTreeBuilder:
                 current['file_count'] += 1
                 current['total_size'] += size
 
-            # File entry belongs only to its direct parent folder
-            current['files'].append(file_info)
+            # File entry (by index) belongs only to its direct parent folder
+            current['files'].append(index)
 
         return tree

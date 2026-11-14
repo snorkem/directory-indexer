@@ -10,7 +10,7 @@ from src.core.tree_builder import DirectoryTreeBuilder
 from src.generators.db_generator import DbGenerator
 from src.generators.html_builder import HtmlBuilder
 from src.generators.json_generator import JsonGenerator
-from src.generators.script_generators import generate_server_script
+from src.generators.script_generators import generate_launcher_scripts, generate_server_script
 from src.models import FileInfo
 
 
@@ -69,3 +69,26 @@ def test_server_only_listens_on_localhost_without_cors(tmp_path):
     source = Path(generate_server_script(str(tmp_path), 'index.html')).read_text()
     assert 'TCPServer(("127.0.0.1", PORT)' in source
     assert 'Access-Control-Allow-Origin' not in source
+
+
+def test_each_file_record_is_embedded_once(tmp_path):
+    html = _generate_json_page(tmp_path, ['only_once.txt', 'other.txt'])
+    data = _data_script(html)
+    assert data.count('only_once.txt') == 2  # 'name' and 'path' of the one record
+    assert 'relative_path' not in data
+    tree = json.loads(re.search(r'window\.directoryTree = (.*?);\n', data, re.S).group(1))
+    assert tree['files'] == [0, 1]
+
+
+def test_windows_launcher_stops_the_server_by_its_own_pid(tmp_path):
+    for name in ('mac', 'win', 'linux'):
+        (tmp_path / name).mkdir()
+    _, bat, _ = generate_launcher_scripts(
+        str(tmp_path / 'mac'), str(tmp_path / 'win'), str(tmp_path / 'linux'), 'index.html')
+    bat_source = Path(bat).read_text()
+    server_source = Path(generate_server_script(str(tmp_path), 'index.html')).read_text()
+
+    assert 'SERVER_PID={os.getpid()}' in server_source
+    assert 'wmic' not in bat_source
+    assert 'findstr /b "SERVER_PID="' in bat_source
+    assert 'taskkill /f /pid %SERVER_PID%' in bat_source

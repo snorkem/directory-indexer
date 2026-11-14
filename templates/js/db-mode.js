@@ -6,7 +6,7 @@
  * - Database loading and initialization
  * - Virtual table rendering with pagination
  * - Search and filtering via SQL queries
- * - Browse mode (future)
+ * - Browse mode (folders loaded on demand)
  * - Statistics display
  * - Column management
  * - Tab switching
@@ -38,7 +38,6 @@ let virtualScroll = {
 };
 
 // Component instances
-let dataService = null;
 let tabManager = null;
 let browseController = null;
 
@@ -86,8 +85,8 @@ async function initDatabase() {
 
         updateLoadingProgress(100, 'Ready!');
 
-        // Initialize data service
-        dataService = new DatabaseLoader(db);
+        // Unicode-aware lowercasing for searches
+        registerSearchFunctions(db);
 
         // Initialize UI
         await initializeUI();
@@ -236,43 +235,34 @@ function handleSort(column) {
 }
 
 /**
- * Update sort indicator arrows in table headers
+ * Build the WHERE conditions for the current search and extension filter
+ * @returns {{sql: string, params: Array}} SQL starting with " AND ..." (or empty) and its parameters
  */
-function updateSortHeaders() {
-    document.querySelectorAll('#fileTable th[data-column]').forEach(header => {
-        header.classList.remove('sort-asc', 'sort-desc');
-        if (header.dataset.column === currentSort.column) {
-            header.classList.add(currentSort.ascending ? 'sort-asc' : 'sort-desc');
-        }
-    });
-}
+function buildFilterClause() {
+    let sql = '';
+    const params = [];
 
-/**
- * Build a LIKE pattern that matches text anywhere, treating % and _ literally
- * @param {string} text - Search text
- * @returns {string} Pattern for a LIKE clause that uses backslash as its ESCAPE character
- */
-function likeContainsPattern(text) {
-    return '%' + text.replace(/[\\%_]/g, '\\$&') + '%';
+    if (currentFilter.search) {
+        const clause = containsClause(['name', 'directory'], currentFilter.search);
+        sql += ' AND ' + clause.sql;
+        params.push(...clause.params);
+    }
+
+    if (currentFilter.extension && currentFilter.extension !== 'all') {
+        sql += ' AND extension = ?';
+        params.push(currentFilter.extension);
+    }
+
+    return { sql, params };
 }
 
 /**
  * Update filtered file count from database
  */
 function updateFilteredCount() {
-    let query = 'SELECT COUNT(*) as count FROM files WHERE 1=1';
-    const params = [];
-
-    if (currentFilter.search) {
-        query += " AND (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(directory) LIKE ? ESCAPE '\\')";
-        const pattern = likeContainsPattern(currentFilter.search);
-        params.push(pattern, pattern);
-    }
-
-    if (currentFilter.extension && currentFilter.extension !== 'all') {
-        query += ' AND extension = ?';
-        params.push(currentFilter.extension);
-    }
+    const filter = buildFilterClause();
+    const query = 'SELECT COUNT(*) as count FROM files WHERE 1=1' + filter.sql;
+    const params = filter.params;
 
     try {
         const stmt = db.prepare(query);
@@ -317,7 +307,7 @@ function renderTable() {
     // Rows are a uniform height set by CSS; if the estimate was off,
     // re-render once with the measured height so rows line up with scroll
     const measured = measureRowHeight(tbody);
-    if (measured && Math.abs(measured - rowHeight) > 0.01) {
+    if (measured && Math.abs(measured - rowHeight) > ROW_HEIGHT_TOLERANCE) {
         rowHeight = measured;
         renderTableRows(tbody, container);
     }
@@ -340,19 +330,9 @@ function renderTableRows(tbody, container) {
     virtualScroll.endIndex = win.end;
 
     // Build query
-    let query = 'SELECT name, extension, directory, size_bytes, size_human, modified, created, icon FROM files WHERE 1=1';
-    const params = [];
-
-    if (currentFilter.search) {
-        query += " AND (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(directory) LIKE ? ESCAPE '\\')";
-        const pattern = likeContainsPattern(currentFilter.search);
-        params.push(pattern, pattern);
-    }
-
-    if (currentFilter.extension && currentFilter.extension !== 'all') {
-        query += ' AND extension = ?';
-        params.push(currentFilter.extension);
-    }
+    const filter = buildFilterClause();
+    let query = 'SELECT name, extension, directory, size_bytes, size_human, modified, created, icon FROM files WHERE 1=1' + filter.sql;
+    const params = filter.params;
 
     // Add sorting
     query += ` ORDER BY ${currentSort.column} ${currentSort.ascending ? 'ASC' : 'DESC'}`;
@@ -431,10 +411,10 @@ function loadStatistics() {
 // ====================================================================
 
 /**
- * Build directory tree structure from database
- * @returns {Promise<Object>} Root directory tree node
+ * Build the folder tree (names and totals, no files) from the database
+ * @returns {Object} Root directory tree node
  */
-async function buildTreeFromDatabase() {
+function buildTreeFromDatabase() {
     try {
         // Get root path from metadata to extract actual directory name
         let rootName = 'Root';
@@ -454,40 +434,43 @@ async function buildTreeFromDatabase() {
             console.warn('Could not retrieve root path from metadata:', error);
         }
 
-        // Get all unique directories
-        const dirsQuery = 'SELECT DISTINCT directory FROM files ORDER BY directory';
-        const dirsStmt = db.prepare(dirsQuery);
+        // One aggregated query: every directory that directly holds files, with its
+        // own file count and size (files directly in it, not in subdirectories)
+        // Prototype-less maps: folder names like "constructor" must be ordinary keys
+        const directStats = Object.create(null);
+        const statsStmt = db.prepare('SELECT directory, COUNT(*), COALESCE(SUM(size_bytes), 0) FROM files GROUP BY directory');
+        while (statsStmt.step()) {
+            const row = statsStmt.get();
+            directStats[row[0] || ''] = { count: row[1], size: row[2] };
+        }
+        statsStmt.free();
 
+        // Those directories plus all of their parents
         const allDirs = new Set(['']); // Include root
-        while (dirsStmt.step()) {
-            const dir = dirsStmt.get()[0];
-            if (dir) {
-                allDirs.add(dir);
-                // Add all parent directories
-                const parts = dir.split('/');
-                let currentPath = '';
-                for (const part of parts) {
-                    if (part) {
-                        currentPath = currentPath ? `${currentPath}/${part}` : part;
-                        allDirs.add(currentPath);
-                    }
+        for (const dir of Object.keys(directStats)) {
+            let currentPath = '';
+            for (const part of dir.split('/')) {
+                if (part) {
+                    currentPath = currentPath ? `${currentPath}/${part}` : part;
+                    allDirs.add(currentPath);
                 }
             }
         }
-        dirsStmt.free();
 
-        // Build tree structure
+        // Build tree structure. Nodes hold no files: DatabaseBrowseService
+        // loads a folder's files from the database when it is opened.
         const tree = {
             name: rootName,
             path: '',
             file_count: 0,
             total_size: 0,
-            children: {},
+            children: Object.create(null),
             files: []
         };
 
-        // Create nodes for all directories
-        const nodeMap = { '': tree };
+        // Create nodes for all directories (sorted, so parents come before children)
+        const nodeMap = Object.create(null);
+        nodeMap[''] = tree;
 
         for (const dirPath of Array.from(allDirs).sort()) {
             if (dirPath === '') continue; // Skip root, already created
@@ -501,7 +484,7 @@ async function buildTreeFromDatabase() {
                 path: dirPath,
                 file_count: 0,
                 total_size: 0,
-                children: {},
+                children: Object.create(null),
                 files: []
             };
 
@@ -513,23 +496,6 @@ async function buildTreeFromDatabase() {
                 parent.children[name] = node;
             }
         }
-
-        // OPTIMIZATION: Use single aggregated query instead of N queries
-        // Get direct file counts and sizes for each directory (files directly in directory, not subdirs)
-        console.log('Loading directory stats...');
-        const directStatsQuery = 'SELECT directory, COUNT(*) as count, COALESCE(SUM(size_bytes), 0) as size FROM files GROUP BY directory';
-        const directStatsStmt = db.prepare(directStatsQuery);
-
-        const directStats = {};
-        while (directStatsStmt.step()) {
-            const row = directStatsStmt.get();
-            const dir = row[0] || '';
-            directStats[dir] = {
-                count: row[1],
-                size: row[2]
-            };
-        }
-        directStatsStmt.free();
 
         // Calculate totals for each directory (including subdirectories)
         // Process in reverse order (deepest first) to accumulate upwards
@@ -555,59 +521,6 @@ async function buildTreeFromDatabase() {
                 node.total_size += child.total_size;
             }
         }
-
-        // OPTIMIZATION: Fetch all files in single query and group by directory
-        console.log('Loading files...');
-        const allFilesQuery = 'SELECT directory, name, extension, size_bytes, modified, created, icon, size_human FROM files ORDER BY directory, name';
-        const allFilesStmt = db.prepare(allFilesQuery);
-
-        let currentDir = null;
-        let currentFiles = [];
-        let processedCount = 0;
-        const totalFiles = Object.values(directStats).reduce((sum, s) => sum + s.count, 0);
-
-        while (allFilesStmt.step()) {
-            const row = allFilesStmt.get();
-            const dir = row[0] || '';
-
-            // When we encounter a new directory, save the previous directory's files
-            if (dir !== currentDir && currentDir !== null) {
-                const node = nodeMap[currentDir];
-                if (node) {
-                    node.files = currentFiles;
-                }
-
-                currentFiles = [];
-            }
-
-            currentDir = dir;
-            currentFiles.push({
-                name: row[1],
-                extension: row[2],
-                size_bytes: row[3],
-                size_human: row[7],
-                modified: row[4],
-                created: row[5],
-                icon: row[6]
-            });
-
-            // Yield to the UI every 5000 files so large databases don't freeze the page
-            processedCount++;
-            if (processedCount % 5000 === 0) {
-                updateLoadingProgress(95, `Processing files... ${processedCount.toLocaleString()}/${totalFiles.toLocaleString()}`);
-                await new Promise(resolve => setTimeout(resolve, 0));
-            }
-        }
-
-        // Don't forget the last directory's files
-        if (currentDir !== null && currentFiles.length > 0) {
-            const node = nodeMap[currentDir];
-            if (node) {
-                node.files = currentFiles;
-            }
-        }
-
-        allFilesStmt.free();
 
         return tree;
     } catch (error) {
@@ -659,11 +572,9 @@ async function buildBrowseMode() {
             }
         }
 
-        // Build directory tree from database
-        const directoryTree = await buildTreeFromDatabase();
-
-        // Create DataService with the tree structure for browse compatibility
-        const browseDataService = new DataService('inline', directoryTree);
+        // Build the folder tree; files are loaded per folder by the service
+        const directoryTree = buildTreeFromDatabase();
+        const browseDataService = new DatabaseBrowseService(db, directoryTree);
 
         const browseState = BrowseState.restore();
 
